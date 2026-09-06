@@ -188,7 +188,9 @@ async function activateSource(settings: RuntimeSettings, persist: boolean): Prom
     await source.start();
   } catch (error: unknown) {
     const label = error instanceof Error ? error.message : 'Không thể khởi động nguồn TikTok';
-    sink.onStatus({ mode: sourceStatus.mode, connected: false, label });
+    if (sourceStatus.label !== label) {
+      sink.onStatus({ mode: sourceStatus.mode, connected: false, label });
+    }
     throw error;
   }
 }
@@ -247,7 +249,7 @@ app.post('/api/settings/source', async (request, response) => {
 
   try {
     await queueSourceActivation(settings, true);
-    response.json(publicSettings());
+    response.status(sourceStatus.retryAt ? 202 : 200).json(publicSettings());
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Không thể kết nối TikTok Live';
     response.status(502).json({ error: message, settings: publicSettings() });

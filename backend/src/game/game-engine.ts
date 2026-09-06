@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { GameAction, GameState, GiftKind, GridCell, IncomingGift, RankingEntry, Team, UserStats, ViewerIdentity } from './types.js';
 
+const LIKE_DAMAGE = 2;
+
 export interface GameEngineOptions { gridSize?: number; random?: () => number; now?: () => number; durationMs?: number }
 const aliases: Record<string, GiftKind> = {
   rose: 'shield', 'hoa hong': 'shield', '🌹': 'shield', rosa: 'attack',
@@ -18,6 +20,7 @@ export class GameEngine {
   private readonly now: () => number;
   private readonly grid: GridCell[][];
   private readonly users = new Map<string, UserStats>();
+  private readonly likeTargets = new Map<string, string>();
   private version = 0;
   private updatedAt: number;
   private durationMs: number;
@@ -76,7 +79,7 @@ export class GameEngine {
     const cell = this.pick(c => c.territory === team && !c.building);
     if (!cell) return [this.action('IGNORED', team, viewer, 'Đấu trường đã đủ 400 người chơi')];
     this.users.set(viewer.userId, { ...viewer, team, built: 1, upgraded: 0, shielded: 0, destroyed: 0, shots: 0, damageDealt: 0, joinedAt: this.now() });
-    cell.building = { id: randomUUID(), ownerId: viewer.userId, ownerName: viewer.nickname, ...(viewer.avatarUrl ? { avatarUrl: viewer.avatarUrl } : {}), team, level: 1, shielded: false, health: 100, maxHealth: 100 };
+    cell.building = { id: randomUUID(), ownerId: viewer.userId, ownerName: viewer.nickname, ...(viewer.avatarUrl ? { avatarUrl: viewer.avatarUrl } : {}), team, level: 1, shieldHealth: 0, health: 100, maxHealth: 100 };
     this.touch();
     return [this.action('JOIN', team, viewer, 'Vào trận · 100 HP', cell)];
   }
@@ -90,12 +93,14 @@ export class GameEngine {
     const stats = this.users.get(viewer.userId);
     if (!stats || !this.owned(viewer.userId)) return actions;
     let remaining = count;
-    // Batch consecutive one-HP shots at each selected opponent. Work is bounded by opponents, not the like count.
+    // Keep consecutive two-HP shots on one opponent, including across separate Live events.
+    // Work stays bounded by opponents and shields, even for very large like bundles.
     while (remaining > 0) {
-      const target = this.enemy(stats.team);
+      const target = this.likeTarget(stats);
       if (!target?.building) break;
-      const shots = target.building.shielded ? 1 : Math.min(remaining, target.building.health);
-      actions.push(this.hit(stats, viewer, target, shots, false, shots));
+      const durability = target.building.health + target.building.shieldHealth;
+      const shots = Math.min(remaining, Math.ceil(durability / LIKE_DAMAGE));
+      actions.push(this.hit(stats, viewer, target, shots * LIKE_DAMAGE, false, shots));
       remaining -= shots;
     }
     return actions;
@@ -110,14 +115,18 @@ export class GameEngine {
     const own = this.owned(viewer.userId);
     if (!own?.building) return [...actions, this.action('IGNORED', stats.team, viewer, 'Đã bị loại · Hẹn bạn vòng sau')];
     if (!Number.isSafeInteger(gift.repeatCount) || gift.repeatCount < 1) return actions;
+    if (kind === 'shield') {
+      // Apply the whole completed Rose streak in one action, without dropping roses above 100.
+      const added = Math.min(gift.repeatCount, Number.MAX_SAFE_INTEGER - 200 - own.building.shieldHealth);
+      own.building.shieldHealth += added;
+      stats.shielded = Math.min(Number.MAX_SAFE_INTEGER, stats.shielded + added);
+      this.touch();
+      const action = this.action('SHIELD', stats.team, viewer, `+${added} khiên · Tổng ${own.building.shieldHealth}`, own);
+      action.remainingShieldHealth = own.building.shieldHealth;
+      return [...actions, action];
+    }
     for (let i = 0; i < Math.min(100, gift.repeatCount); i++) {
-      if (kind === 'shield') {
-        if (own.building.shielded) continue;
-        own.building.shielded = true;
-        stats.shielded++;
-        this.touch();
-        actions.push(this.action('SHIELD', stats.team, viewer, 'Hoa hồng · Chặn 1 phát bắn', own));
-      } else if (kind === 'upgrade') {
+      if (kind === 'upgrade') {
         if (own.building.level === 2) continue;
         Object.assign(own.building, { level: 2, health: 200, maxHealth: 200 });
         stats.upgraded++;
@@ -140,22 +149,28 @@ export class GameEngine {
     const action = this.action('DAMAGE', stats.team, viewer, '', cell);
     Object.assign(action, { sourceX: source?.x, sourceY: source?.y, targetTeam: target.team, targetUserId: target.ownerId, shotCount });
     stats.shots += shotCount;
-    if (target.shielded && !instant) {
-      target.shielded = false;
-      Object.assign(action, { type: 'BLOCKED', message: 'Khiên đã chặn một phát bắn', damage: 0, remainingHealth: target.health });
-    } else {
-      const dealt = instant ? target.health : Math.min(damage, target.health);
-      target.health -= dealt;
-      stats.damageDealt += dealt;
-      Object.assign(action, { damage: dealt, remainingHealth: target.health, message: '-' + dealt + ' HP · ' + target.ownerName });
-      if (!target.health) {
-        stats.destroyed++;
-        const victim = this.users.get(target.ownerId);
-        if (victim) victim.eliminatedAt = this.now();
-        delete cell.building;
-        action.type = instant ? 'MEGA_DESTROY' : 'DESTROY';
-        action.message = 'Hạ gục ' + target.ownerName;
-      }
+    const absorbed = instant ? 0 : Math.min(damage, target.shieldHealth);
+    target.shieldHealth -= absorbed;
+    const dealt = instant ? target.health : Math.min(damage - absorbed, target.health);
+    target.health -= dealt;
+    stats.damageDealt += dealt;
+    Object.assign(action, {
+      damage: dealt, shieldDamage: absorbed, remainingShieldHealth: target.shieldHealth,
+      remainingHealth: target.health,
+      message: `-${dealt} HP${absorbed ? ` · -${absorbed} khiên` : ''} · ${target.ownerName}`,
+    });
+    if (dealt === 0) {
+      action.type = 'BLOCKED';
+      action.message = `Khiên hấp thụ ${absorbed} sát thương · Còn ${target.shieldHealth} · ${target.ownerName}`;
+    }
+    if (!target.health) {
+      stats.destroyed++;
+      const victim = this.users.get(target.ownerId);
+      if (victim) victim.eliminatedAt = this.now();
+      delete cell.building;
+      action.type = instant ? 'MEGA_DESTROY' : 'DESTROY';
+      action.remainingShieldHealth = 0;
+      action.message = 'Hạ gục ' + target.ownerName;
     }
     this.touch();
     return action;
@@ -166,6 +181,7 @@ export class GameEngine {
     this.durationMs = durationMs;
     for (const row of this.grid) for (const cell of row) delete cell.building;
     this.users.clear();
+    this.likeTargets.clear();
     this.round = this.newRound();
     for (const viewer of viewers) this.handleJoin(viewer);
     this.touch();
@@ -192,6 +208,15 @@ export class GameEngine {
   }
   private scores() { return this.grid.flat().reduce((s,c) => { if(c.building) s[c.building.team]++; return s; }, { blue: 0, red: 0 }); }
   private owned(id: string) { return this.grid.flat().find(c => c.building?.ownerId === id); }
+  private likeTarget(attacker: UserStats): GridCell | undefined {
+    const targetId = this.likeTargets.get(attacker.userId);
+    const current = targetId ? this.owned(targetId) : undefined;
+    if (current?.building && current.building.team !== attacker.team) return current;
+    const next = this.enemy(attacker.team);
+    if (next?.building) this.likeTargets.set(attacker.userId, next.building.ownerId);
+    else this.likeTargets.delete(attacker.userId);
+    return next;
+  }
   private enemy(team: Team) { return this.pick(c => Boolean(c.building && c.building.team !== team)); }
   private pick(predicate: (c: GridCell) => boolean) {
     const cells = this.grid.flat().filter(predicate);

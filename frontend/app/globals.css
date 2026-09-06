@@ -156,24 +156,8 @@ button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible 
 .status-dot.connected,.alive-count>span { background:#75e9b8; box-shadow:0 0 8px #75e9b860; }
 .live-description { font-weight:400; color:#969db8; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; margin-left:6px; }
 .viewer-count { display:flex; align-items:center; gap:5px; margin-left:auto; }
-.match-header { padding:18px 28px 20px; border:1px solid #ffffff10; border-radius:20px; background:linear-gradient(105deg,#10354c80,#15182b 47%,#42183080); overflow:hidden; }
-.round-kicker { display:flex; align-items:center; justify-content:center; gap:14px; color:#b6b9cd; font-size:12px; letter-spacing:1.6px; font-weight:700; text-align:center; }
-.round-kicker>span:first-child,.round-kicker>span:last-child { width:30px; height:1px; background:#8a86ad55; }
-.scoreboard { display:grid; grid-template-columns:1fr 1fr 1fr; align-items:center; text-align:center; padding:20px 0; }
-.team-score { display:flex; flex-direction:column; align-items:center; }
 .blue { color:#64dcff; }
 .red { color:#ff7caa; }
-.team-score>span { font-size:13px; letter-spacing:2px; font-weight:800; }
-.team-score>strong { font-size:64px; line-height:1.15; letter-spacing:-3px; font-variant-numeric:tabular-nums; font-weight:900; text-shadow:0 0 32px currentColor; }
-.team-score small { color:#a9b1ca; font-size:12px; }
-.round-center { display:flex; flex-direction:column; align-items:center; gap:7px; }
-.vs-pill { display:grid; place-items:center; width:36px; height:23px; background:#ffffff08; border:1px solid #ffffff15; border-radius:5px; font-weight:900; font-size:13px; font-style:italic; color:#c7c1dc; }
-.round-time { font-size:35px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:2px; color:#ffe3a2; line-height:1.1; }
-.round-time>span { color:#c49f60; }
-.round-time.urgent { color:#ff8c8c; }
-.round-center>small { display:flex; align-items:center; gap:4px; font-size:12px; letter-spacing:1px; color:#a3a6bd; }
-.balance-track { height:5px; border-radius:10px; background:#ff6997; box-shadow:0 0 16px #ec70b018; overflow:hidden; }
-.balance-track>span { display:block; height:100%; background:#51d6ff; transition:width .4s; border-right:3px solid #eef6ff; }
 .arena-toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:22px 0 12px; }
 .arena-tabs { display:flex; align-items:center; gap:5px; }
 .arena-tabs button { display:flex; align-items:center; gap:7px; border:0; background:transparent; color:#9098b4; border-radius:9px; padding:10px 14px; min-height:44px; font-size:14px; font-weight:600; }
@@ -214,8 +198,6 @@ button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible 
 .projectile circle { fill:none; stroke:currentColor; stroke-width:.3; animation:impact .8s .2s ease-out both; transform-box:fill-box; transform-origin:center; }
 .projectile.mega line { stroke:#edbeff; stroke-width:.8; }
 .waiting-team { display:flex; flex-direction:column; align-items:center; padding:70px 0; color:#8899b4; font-size:14px; text-align:center; gap:10px; }
-.battle-caption { display:flex; align-items:center; justify-content:center; gap:7px; min-height:42px; padding:10px; font-size:12px; color:#b6b5d2; background:#13182b; border-top:1px solid #ffffff08; }
-.battle-caption svg { color:#ff7da8; flex-shrink:0; }
 .activity-feed { display:flex; align-items:center; gap:12px; margin:12px 0 24px; min-height:66px; padding:12px 16px; border:1px solid #ffffff0c; border-radius:12px; background:linear-gradient(100deg,#251c3c90,#141729); }
 .activity-icon { display:grid; place-items:center; width:34px; height:34px; border-radius:10px; background:#b08bff14; color:#bda3fa; flex-shrink:0; }
 .activity-message { min-width:0; display:flex; flex-direction:column; gap:3px; animation:join-pop .22s; }
@@ -287,9 +269,6 @@ button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible 
   .brand { font-size:16px; gap:9px; }
   .brand small { font-size:12px; letter-spacing:1.6px; }
   .brand-mark { width:39px; height:39px; border-radius:12px; }
-  .match-header { padding:16px 16px 18px; }
-  .team-score>strong { font-size:48px; }
-  .round-time { font-size:30px; }
   .fighters { grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px 12px; }
   .team-zone { padding:16px 15px 22px; }
   .fighter-portrait { width:52px; height:52px; }
@@ -303,14 +282,6 @@ button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible 
   .survival-shell { padding:0 12px; }
   .live-bar { font-size:12px; }
   .live-description { font-size:12px; }
-  .round-kicker { font-size:12px; gap:8px; letter-spacing:1px; }
-  .round-kicker>span:first-child,.round-kicker>span:last-child { width:12px; }
-  .scoreboard { padding:16px 0; grid-template-columns:1fr 1.15fr 1fr; }
-  .team-score>strong { font-size:44px; }
-  .team-score>span { font-size:12px; letter-spacing:1.4px; }
-  .team-score small { font-size:12px; }
-  .round-time { font-size:28px; letter-spacing:1px; }
-  .round-center>small { font-size:12px; letter-spacing:.5px; }
   .arena-toolbar { padding-top:16px; gap:5px; }
   .arena-tabs button { padding:8px 10px; font-size:12px; gap:5px; }
   .alive-count { font-size:12px; }
@@ -322,7 +293,6 @@ button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible 
   .fighter-portrait { width:54px; height:54px; }
   .fighter>strong { font-size:14px; }
   .hp-label { font-size:12px; }
-  .battle-caption { font-size:12px; min-height:38px; }
   .activity-feed { padding:11px; gap:9px; margin-bottom:22px; }
   .activity-message>span { font-size:12px; }
   .gift-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
@@ -362,17 +332,22 @@ button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible 
 
 @media(max-width:480px) { .brand small { letter-spacing:.4px; } .brand { min-width:0; } .header-controls { flex-shrink:0; } }
 
-/* Compact scoreboard; leave the mobile viewport to the arena. */
-.match-header { padding:10px 14px; border-radius:14px; }
-.match-header .round-kicker, .match-header .vs-pill { display:none; }
-.match-header .scoreboard { padding:0 0 7px; }
-.match-header .team-score>strong { font-size:32px; line-height:1.1; letter-spacing:-1px; }
-.match-header .team-score>span { font-size:12px; line-height:18px; letter-spacing:1px; }
-.match-header .team-score small { font-size:12px; line-height:14px; }
-.match-header .round-center { gap:4px; }
-.match-header .round-time { font-size:26px; line-height:1.1; letter-spacing:1px; }
-.match-header .round-center>small { font-size:12px; }
-.match-header .balance-track { height:3px; }
+/* One header and arena frame. Countdown is always exactly 2px larger than VS. */
+.match-header { --versus-size:14px; display:flex; flex-direction:column; padding:0; border:1px solid #ffffff14; border-radius:14px; overflow:hidden; background:#111d29; }
+.match-header .scoreboard { position:relative; isolation:isolate; display:grid; grid-template-columns:1fr 1fr; align-items:center; flex:0 0 auto; min-height:60px; padding:10px 0; text-align:center; border-bottom:1px solid #d2eaff1a; }
+.match-header .team-score { position:relative; z-index:1; display:flex; flex-direction:column; align-items:center; gap:2px; min-width:0; padding:0 5px; }
+.match-header .team-score > span { font-size:14px; line-height:18px; font-weight:800; letter-spacing:.6px; }
+.match-header .team-score small { font-size:12px; line-height:16px; color:#e0e9f5; font-weight:500; font-variant-numeric:tabular-nums; }
+.match-header .round-center { position:absolute; z-index:1; inset-block:8px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; width:68px; }
+.match-header .round-time { font-size:calc(var(--versus-size) + 2px); line-height:18px; font-weight:900; font-variant-numeric:tabular-nums; letter-spacing:.5px; color:#ffe3a2; text-shadow:0 1px 5px #09111f; }
+.match-header .round-time > span { color:inherit; }
+.match-header .round-time.urgent { color:#ffabab; }
+.match-header .vs-pill { display:block; font-size:var(--versus-size); line-height:18px; font-weight:800; color:#e3e7ef; text-shadow:0 1px 5px #09111f; }
+.match-header .balance-track { position:absolute; inset:0; z-index:0; overflow:hidden; pointer-events:none; background:linear-gradient(180deg,#77334f,#3d2036); }
+.match-header .balance-track > span { display:block; height:100%; background:linear-gradient(180deg,#26667f,#153746); transition:width .4s ease; box-shadow:2px 0 0 #f2eeff22; }
+.match-header .balance-track::after { content:''; position:absolute; inset:0; background:linear-gradient(90deg,transparent 30%,#090f202e 50%,transparent 70%); }
+.match-header .arena-surface { flex:1 1 0; min-height:0; border:0; border-radius:0; overflow:hidden; }
+
 
 /* A fixed measured arena, with every avatar packed inside its own team. */
 .battlefield { height:clamp(240px,calc(100dvh - 340px),600px); min-height:0; max-height:none; overflow:hidden; }
@@ -400,6 +375,45 @@ button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible 
 .combat-canvas { display:block; width:100%; height:100%; touch-action:pan-y; }
 .soldier-inspector { position:absolute; bottom:8px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:8px; max-width:calc(100% - 16px); padding:8px 12px; border:1px solid #c7acff50; border-radius:9px; background:#101326ee; pointer-events:none; box-shadow:0 4px 18px #0005; font-size:12px; }
 .soldier-inspector strong { color:#e8dcff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.soldier-inspector { flex-wrap:wrap; justify-content:center; row-gap:3px; }
 .soldier-inspector span { flex-shrink:0; color:#c7d1e2; }
 .canvas-error { position:absolute; inset:45% 12px auto; text-align:center; color:#ffc2cf; font-size:14px; }
 .survival-footer a { color:#b6adc8; text-decoration:underline; text-underline-offset:3px; font-size:12px; }
+
+/* The stream keeps its guide, battlefield and latest action in one viewport. */
+.stream-stage.is-active { display:flex; flex-direction:column; height:100dvh; min-height:560px; max-height:1080px; padding-bottom:max(8px,env(safe-area-inset-bottom)); }
+.stream-stage.is-active > * { flex-shrink:0; }
+.stream-stage.is-active > .match-header { flex:1 1 0; min-height:220px; }
+.stream-stage.is-active .battlefield { height:100%; min-height:0; }
+.stream-stage.is-active .arena-surface > .ranking-list { height:100%; max-height:none; overflow-y:auto; }
+.stream-stage .arena-toolbar { padding:10px 0 8px; }
+.stream-stage .activity-feed { min-height:56px; margin:8px 0 0; padding:9px 12px; }
+
+.battle-caption { min-width:0; overflow:hidden; margin:0 0 8px; border:1px solid #aa8cff24; border-radius:12px; background:linear-gradient(110deg,#20182e,#131a2a); color:#c4bbdb; }
+.battle-guide-heading { display:flex; align-items:center; gap:8px; min-height:32px; padding:2px 8px 2px 10px; }
+.battle-guide-heading strong { display:flex; align-items:center; gap:5px; font-size:12px; font-weight:800; color:#e2d5ff; white-space:nowrap; }
+.battle-guide-heading > span { display:flex; align-items:center; gap:4px; font-size:11px; color:#e0afc7; margin-left:auto; }
+.battle-guide-heading > span svg { color:#ff80aa; flex-shrink:0; }
+.guide-pause { display:grid; place-items:center; flex:0 0 28px; height:28px; border:1px solid #c7b0ff30; border-radius:7px; background:#c1a5ff0c; color:#dcd0fa; }
+.guide-pause:hover { background:#c1a5ff22; }
+.skills-viewport { overflow:hidden; padding:0 8px 7px; }
+.skills-viewport:focus-visible { outline:2px solid #b6a3ff; outline-offset:-2px; }
+.skills-track { display:flex; width:max-content; animation:skills-scroll 76s linear infinite; }
+.skills-track[data-paused="true"] { animation-play-state:paused; }
+.skills-list { display:flex; flex:none; gap:8px; margin:0; padding:0 8px 0 0; list-style:none; }
+.skill-ticker-item { display:flex; align-items:center; flex:none; gap:8px; min-width:166px; padding:6px 10px; border:1px solid #ffffff0b; border-radius:8px; background:#070e1b70; }
+.skill-ticker-icon { display:grid; place-items:center; flex:0 0 26px; font-size:23px; line-height:28px; color:#ff7fab; }
+.skill-ticker-item strong { display:block; color:#f1eafc; font-size:12px; line-height:16px; font-weight:750; white-space:nowrap; }
+.skill-ticker-item small { display:block; color:#b6d3de; font-size:12px; line-height:16px; white-space:nowrap; }
+.stream-stage.is-finished .battle-caption { margin-top:12px; }
+@keyframes skills-scroll { to { transform:translateX(-50%); } }
+@media(max-width:360px) {
+  .battle-guide-heading { gap:5px; padding-left:8px; }
+  .battle-guide-heading > span { font-size:10px; }
+  .battle-guide-heading > span svg { display:none; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .skills-track { animation:none!important; }
+  .skills-list[aria-hidden="true"], .guide-pause { display:none; }
+  .skills-viewport { overflow-x:auto; scrollbar-width:thin; scrollbar-color:#70628f #131a2a; }
+}

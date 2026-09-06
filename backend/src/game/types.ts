@@ -8,7 +8,7 @@ export interface UserStats extends ViewerIdentity {
 }
 export interface Building {
   id: string; ownerId: string; ownerName: string; avatarUrl?: string; team: Team;
-  level: 1 | 2; shielded: boolean; health: number; maxHealth: number;
+  level: 1 | 2; shieldHealth: number; health: number; maxHealth: number;
 }
 export interface GridCell { x: number; y: number; territory: Team; building?: Building }
 export interface LeaderboardEntry extends ViewerIdentity { team: Team; score: number }
@@ -25,6 +25,6 @@ export interface GameState {
 export interface GameAction {
   id: string; type: ActionType; team: Team; user: ViewerIdentity; message: string; timestamp: number;
   x?: number; y?: number; sourceX?: number; sourceY?: number; targetTeam?: Team;
-  targetUserId?: string; damage?: number; remainingHealth?: number; shotCount?: number;
+  targetUserId?: string; damage?: number; shieldDamage?: number; remainingShieldHealth?: number; remainingHealth?: number; shotCount?: number;
 }
 export interface IncomingGift { giftName: string; repeatCount: number; diamondCount?: number }

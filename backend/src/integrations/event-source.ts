@@ -4,6 +4,9 @@ export interface SourceStatus {
   mode: 'mock' | 'tiktok';
   connected: boolean;
   label: string;
+  errorCode?: number;
+  retryAttempt?: number;
+  retryAt?: number;
 }
 
 export interface EventSink {

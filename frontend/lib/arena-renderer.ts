@@ -20,7 +20,7 @@ interface Shot {
   started: number;
   impacted: boolean;
 }
-export interface SoldierInfo { userId: string; name: string; health: number; level: number; alive: boolean }
+export interface SoldierInfo { userId: string; name: string; health: number; shieldHealth: number; level: number; alive: boolean }
 
 /** Canvas animation is independent of React/socket frequency and never changes authoritative game state. */
 export class ArenaRenderer {
@@ -188,20 +188,17 @@ export class ArenaRenderer {
     floor.addColorStop(1, '#402335');
     ctx.fillStyle = floor; ctx.fillRect(0, 0, w, h);
     ctx.lineWidth = .7; ctx.strokeStyle = '#c0d9e80b';
-    for (let x = 0; x < w; x += 26) { ctx.beginPath(); ctx.moveTo(x, 34); ctx.lineTo(x, h); ctx.stroke(); }
-    for (let y = 34; y < h; y += 26) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+    for (let x = 0; x < w; x += 26) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+    for (let y = 0; y < h; y += 26) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
     ctx.strokeStyle = '#dfeeff25'; ctx.lineWidth = 1;
-    ctx.strokeRect(5, 34, w - 10, h - 40);
-    ctx.beginPath(); ctx.arc(w / 2, (h + 34) / 2, Math.min(42, w * .12), 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeRect(5, 5, w - 10, h - 10);
+    ctx.beginPath(); ctx.arc(w / 2, h / 2, Math.min(42, w * .12), 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([8, 9]);
     ctx.strokeStyle = '#dfeeff50';
-    ctx.beginPath(); ctx.moveTo(w / 2, 34); ctx.lineTo(w / 2, h - 6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(w / 2, 5); ctx.lineTo(w / 2, h - 6); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = '#07121ad9'; ctx.fillRect(0, 0, w, 32);
-    ctx.font = '700 11px "Segoe UI", sans-serif'; ctx.textAlign = 'center';
-    ctx.fillStyle = COLORS.blue; ctx.fillText('BIỆT ĐỘI XANH', w / 4, 21);
-    ctx.fillStyle = COLORS.red; ctx.fillText('BIỆT ĐỘI ĐỎ', w * .75, 21);
-    ctx.fillStyle = '#a7b8c8'; ctx.font = '800 9px "Segoe UI", sans-serif'; ctx.fillText('VS', w / 2, 20);
+    // Team names and timer live in the shared DOM scoreboard above the canvas.
+    ctx.textAlign = 'center';
     if (!this.soldiers.size) {
       ctx.fillStyle = '#c2cad9'; ctx.font = '500 14px "Segoe UI", sans-serif';
       ctx.fillText('Chờ người xem vào Live…', w / 2, h / 2);
@@ -291,10 +288,14 @@ export class ArenaRenderer {
     ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(40, 32, 18, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
 
-    if (building?.shielded) {
+    if (building && building.shieldHealth > 0) {
       ctx.strokeStyle = '#82ffe2'; ctx.lineWidth = 1.5; ctx.fillStyle = '#63ffd70a';
       ctx.beginPath(); ctx.ellipse(40, 50, 30, 44, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#b8ffec'; ctx.font = '800 9px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('◆', 67, 24);
+      const shieldLabel = building.shieldHealth >= 1000 ? (building.shieldHealth / 1000).toFixed(1) + 'k' : String(building.shieldHealth);
+      ctx.font = '800 9px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillStyle = '#0b3835'; this.roundRect(51, 10, 29, 14, 4); ctx.fill();
+      ctx.strokeStyle = '#82ffe2'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = '#b8ffec'; ctx.fillText('◆' + shieldLabel, 65.5, 20, 27);
     }
     ctx.globalAlpha = 1;
     const selected = this.selectedId === user.userId;
@@ -358,7 +359,9 @@ export class ArenaRenderer {
       }
       ctx.font = '800 ' + (mega ? 16 : 13) + 'px "Segoe UI", sans-serif'; ctx.textAlign = 'center';
       ctx.shadowColor = '#000'; ctx.shadowBlur = 3;
-      ctx.fillText(blocked ? 'CHẶN!' : '-' + (shot.action.damage ?? 1), to.x, to.y - 16 - (this.reducedMotion ? 0 : progress * 24));
+      const impactLabel = blocked ? `-${shot.action.shieldDamage ?? 0} KHIÊN`
+        : `-${shot.action.damage ?? 0} HP${shot.action.shieldDamage ? ` / -${shot.action.shieldDamage} KHIÊN` : ''}`;
+      ctx.fillText(impactLabel, to.x, to.y - 16 - (this.reducedMotion ? 0 : progress * 24));
     }
     ctx.restore();
   }
@@ -379,7 +382,7 @@ export class ArenaRenderer {
   }
   private info(id: string): SoldierInfo | null {
     const soldier = this.soldiers.get(id);
-    return soldier ? { userId: id, name: soldier.user.nickname, health: soldier.building?.health ?? 0, level: soldier.building?.level ?? (soldier.user.upgraded ? 2 : 1), alive: Boolean(soldier.building) } : null;
+    return soldier ? { userId: id, name: soldier.user.nickname, health: soldier.building?.health ?? 0, shieldHealth: soldier.building?.shieldHealth ?? 0, level: soldier.building?.level ?? (soldier.user.upgraded ? 2 : 1), alive: Boolean(soldier.building) } : null;
   }
   private handlePointer = (event: PointerEvent): void => {
     const rect = this.canvas.getBoundingClientRect();

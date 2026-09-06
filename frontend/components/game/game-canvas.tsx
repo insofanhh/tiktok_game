@@ -24,7 +24,7 @@ export function GameCanvas({ state, actions }: { state: GameState; actions: Game
       aria-label={'Đấu trường người que: ' + state.scores.blue + ' người phe Xanh và ' + state.scores.red + ' người phe Đỏ sống sót. Chạm nhân vật để xem thông tin.'}/>
     {error && <p className="canvas-error" role="alert">{error}</p>}
     {selected && <div className="soldier-inspector" aria-live="polite">
-      <strong>{selected.name}</strong><span>{selected.alive ? selected.health + ' HP · Cấp ' + selected.level : 'Đã bị loại · Chờ vòng sau'}</span>
+      <strong>{selected.name}</strong><span>{selected.alive ? selected.health + ' HP · ' + selected.shieldHealth + ' khiên · Cấp ' + selected.level : 'Đã bị loại · Chờ vòng sau'}</span>
     </div>}
     <ul className="sr-only" aria-label="Người tham gia đấu trường">{state.users.map(user => <li key={user.userId}>
       {user.nickname} · Phe {user.team === 'blue' ? 'Xanh' : 'Đỏ'} · {user.eliminatedAt ? 'Đã bị loại' : 'Đang chiến đấu'}

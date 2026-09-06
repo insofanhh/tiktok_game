@@ -25,12 +25,12 @@ export function createPatrolSlots(
   width: number,
   height: number,
 ): PatrolSlot[] {
-  if (width <= 40 || height <= 56) return [];
+  if (width <= 40 || height <= 20) return [];
   const slots: PatrolSlot[] = [];
   for (const team of ['blue', 'red'] as const) {
     const members = users.filter(user => user.team === team);
     const areaWidth = width / 2 - 16;
-    const areaHeight = height - 54;
+    const areaHeight = height - 16;
     const layout = fitArena(members.length, areaWidth, areaHeight);
     if (!layout.rows) continue;
     const cellWidth = areaWidth / layout.columns;
@@ -39,7 +39,7 @@ export function createPatrolSlots(
       userId: user.userId,
       team,
       left: (team === 'blue' ? 8 : width / 2 + 8) + (index % layout.columns) * cellWidth,
-      top: 40 + Math.floor(index / layout.columns) * cellHeight,
+      top: 8 + Math.floor(index / layout.columns) * cellHeight,
       width: cellWidth,
       height: cellHeight,
       scale: layout.scale * .76,

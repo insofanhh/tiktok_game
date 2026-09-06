@@ -1,5 +1,5 @@
 'use client';
-import { Clock3, Crown, Heart, Radio, Shield, Swords, Trophy, Users, Volume2, VolumeX, Zap } from 'lucide-react';
+import { Clock3, Crown, Heart, Pause, Play, Radio, Shield, Swords, Trophy, Users, Volume2, VolumeX, Zap } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { GameState, RankingEntry } from '@/lib/game-types';
 import { Avatar } from './avatar';
@@ -9,8 +9,8 @@ import { useGameSocket } from './socket-provider';
 import { useGameAudio } from './use-game-audio';
 
 const gifts = [
-  { icon: '♥', name: 'Thả tim', detail: '1 tim · 1 phát bắn', gift: '' },
-  { icon: '🌹', name: 'Hoa hồng', detail: 'Khiên chặn 1 phát', gift: 'Rose' },
+  { icon: '♥', name: 'Thả tim', detail: '1 tim · 1 phát · −2 HP', gift: '' },
+  { icon: '🌹', name: 'Hoa hồng', detail: '1 hoa · +1 điểm khiên', gift: 'Rose' },
   { icon: '🌷', name: 'Rosa', detail: 'Bắn −10 HP', gift: 'Rosa' },
   { icon: '🐷', name: 'Heo may mắn', detail: 'Cấp 2 · 200 HP', gift: 'Lucky Pig' },
   { icon: '🕊️', name: 'Hạc giấy', detail: 'Loại 1 đối thủ', gift: 'Paper Crane' },
@@ -38,6 +38,7 @@ export function GameApp() {
   };
 
   return <main className="survival-shell">
+    <div className={"stream-stage " + (finished ? "is-finished" : "is-active")}>
     <header className="topbar">
       <a className="brand" href="/" aria-label="TikTok Kingdom Clash"><span className="brand-mark"><Swords size={23}/></span><span>KINGDOM <b>CLASH</b><small>ĐẤU TRƯỜNG SINH TỒN</small></span></a>
       <div className="header-controls">
@@ -48,17 +49,23 @@ export function GameApp() {
 
     <div className="live-bar"><span className={'status-dot ' + (connected && source.connected ? 'connected' : '')}/><span>{!connected ? 'Đang kết nối lại máy chủ…' : source.mode === 'mock' ? 'GIẢ LẬP' : 'TIKTOK LIVE'}</span><span className="live-description">{connected ? source.label : 'Dữ liệu tạm thời chưa cập nhật'}</span><span className="viewer-count"><Users size={14}/>{state.users.length}</span></div>
     {audio.error && <p role="alert" className="error-banner">{audio.error}</p>}
-    <section className={'match-header ' + (finished ? 'match-finished' : '')}>
-      <div className="round-kicker"><span/><span>{finished ? 'VÒNG ĐẤU ĐÃ KẾT THÚC' : 'VÀO LIVE LÀ CÓ MẶT TRONG TRẬN'}</span><span/></div>
+    <section className={'match-header ' + (finished ? 'match-finished' : '')} aria-label="Trận đấu sinh tồn">
       <div className="scoreboard">
-        <div className="team-score blue"><span>PHE XANH</span><strong>{state.scores.blue.toString().padStart(2,'0')}</strong><small>đang sống sót</small></div>
-        <div className="round-center"><span className="vs-pill">VS</span><RoundClock round={state.round} serverTime={state.serverTime}/><small><Clock3 size={12}/> CÒN LẠI</small></div>
-        <div className="team-score red"><span>PHE ĐỎ</span><strong>{state.scores.red.toString().padStart(2,'0')}</strong><small>đang sống sót</small></div>
+        <div className="balance-track" role="img" aria-label={`Tỉ lệ sống sót: Phe Xanh ${state.scores.blue}, Phe Đỏ ${state.scores.red}`}>
+          <span style={{ width: (survivors ? state.scores.blue / survivors * 100 : 50) + '%' }}/>
+        </div>
+        <div className="team-score blue"><span>PHE XANH</span><small>{state.scores.blue} sống sót</small></div>
+        <div className="round-center"><RoundClock round={state.round} serverTime={state.serverTime}/><span className="vs-pill">VS</span></div>
+        <div className="team-score red"><span>PHE ĐỎ</span><small>{state.scores.red} sống sót</small></div>
       </div>
-      <div className="balance-track" aria-label="Tỉ lệ người sống sót hai phe"><span style={{ width: (survivors ? state.scores.blue/survivors*100 : 50)+'%' }}/></div>
+      {!finished && <div className="arena-surface">
+        {tab === 'arena' ? <GameCanvas state={state} actions={recentActions}/> : <Ranking rows={ranking}/>}
+      </div>}
     </section>
 
-    {finished ? <section className="results-panel">
+    {finished ? <>
+      <BattleGuide/>
+      <section className="results-panel">
       <div className="result-crown"><Trophy size={34}/></div>
       <p className="section-kicker">TỔNG KẾT VÒNG SINH TỒN</p>
       <h1>{state.round.winner === 'draw' ? 'HAI PHE HÒA NHAU' : state.round.winner === 'blue' ? 'PHE XANH CHIẾN THẮNG' : 'PHE ĐỎ CHIẾN THẮNG'}</h1>
@@ -69,12 +76,9 @@ export function GameApp() {
       <p className="ranking-rule">Ưu tiên sống sót → hạ gục → HP → thời gian sống sót.</p>
       <button className="primary-action" onClick={() => void restart()} disabled={pending || !connected}>{pending ? 'Đang bắt đầu…' : 'Bắt đầu vòng tiếp theo'}<Zap size={17}/></button>
       {error && <p className="error-banner" role="alert">{error}</p>}
-    </section> : <>
+    </section></> : <>
       <div className="arena-toolbar"><div className="arena-tabs" aria-label="Chọn nội dung"><button className={tab === 'arena' ? 'selected' : ''} onClick={() => setTab('arena')} aria-pressed={tab === 'arena'}><Swords size={16}/>Đấu trường</button><button className={tab === 'ranking' ? 'selected' : ''} onClick={() => setTab('ranking')} aria-pressed={tab === 'ranking'}><Trophy size={16}/>Bảng hạng</button></div><span className="alive-count"><span/>{survivors} sống sót</span></div>
-      <section className="arena-surface">
-        {tab === 'arena' ? <GameCanvas state={state} actions={recentActions}/> : <Ranking rows={ranking}/>}
-        <div className="battle-caption"><Heart size={15}/><span>Thả tim để khai hỏa. Bảo vệ avatar của bạn!</span></div>
-      </section>
+      <BattleGuide/>
       <div className="activity-feed" aria-label="Diễn biến trận đấu">
         <span className="activity-icon"><Zap size={19}/></span>
         {latest ? <div key={latest.id} className="activity-message"><strong className={latest.team}>{latest.user.nickname}</strong><span>{latest.message}</span></div> : <div className="activity-message"><strong>Sẵn sàng vào trận</strong><span>Mỗi người xem có 1 avatar · 100 HP</span></div>}
@@ -82,15 +86,45 @@ export function GameApp() {
       </div>
     </>}
 
-    <section className="arsenal">
-      <div className="section-heading"><div><span className="section-kicker">TIẾP SỨC CHO CHIẾN BINH</span><h2>Kho kỹ năng</h2></div><Shield size={23}/></div>
-      <div className="gift-grid">{gifts.map((g,i) => <div className={'gift-card gift-' + i} key={g.name}><span className="gift-icon" aria-hidden="true">{g.icon}</span><div><strong>{g.name}</strong><small>{g.detail}</small></div></div>)}</div>
-      <p className="arsenal-note">Khiên không cộng dồn. Quà hạ gục xuyên khiên. Bị loại sẽ chờ vòng sau.</p>
-    </section>
+    </div>
     {!audio.enabled && <button className="sound-prompt" onClick={() => void audio.toggle()}><Volume2 size={16}/>Bật âm thanh để cảm nhận trận đấu</button>}
     <DebugControls serverUrl={serverUrl} state={state} enabled={source.mode === 'mock' && connected}/>
     <footer className="survival-footer"><Radio size={13}/> KINGDOM CLASH <span>Vào Live · Chọn phe tự động · Sinh tồn</span><a href="/audio/CREDITS.txt" target="_blank" rel="noreferrer">Nguồn âm thanh</a></footer>
   </main>;
+}
+
+const battleGuideItems = [
+  ...gifts.map(({ icon, name, detail }) => ({ icon, name, detail })),
+  { icon: '🎯', name: 'Tim liên tiếp', detail: 'Dồn 1 mục tiêu · Hạ gục thì chuyển' },
+  { icon: '👋', name: 'Vào Live là vào trận', detail: 'Tự chọn phe · 100 HP' },
+  { icon: '🛡️', name: 'Lưu ý về khiên', detail: 'Cộng dồn · 1 khiên chịu 1 sát thương' },
+  { icon: '🎯', name: 'Quà hạ gục', detail: 'Xuyên khiên của đối thủ' },
+  { icon: '↻', name: 'Khi bị loại', detail: 'Hồi sinh ở vòng tiếp theo' },
+];
+
+function BattleGuide() {
+  const [paused, setPaused] = useState(false);
+  return <section className="battle-caption" aria-label="Kho kỹ năng và hướng dẫn chơi">
+    <div className="battle-guide-heading">
+      <strong><Shield size={14}/>Kho kỹ năng</strong>
+      <span><Heart size={12}/>Thả tim để khai hỏa</span>
+      <button type="button" className="guide-pause" aria-pressed={paused}
+        aria-label={paused ? 'Tiếp tục cuộn hướng dẫn kỹ năng' : 'Tạm dừng cuộn hướng dẫn kỹ năng'}
+        title={paused ? 'Tiếp tục cuộn' : 'Tạm dừng để đọc'} onClick={() => setPaused(value => !value)}>
+        {paused ? <Play size={13}/> : <Pause size={13}/>}
+      </button>
+    </div>
+    <div className="skills-viewport" tabIndex={0} role="region" aria-label="Danh sách kỹ năng; có thể tạm dừng bằng nút phía trên">
+      <div className="skills-track" data-paused={paused}>
+        {[false, true].map(duplicate => <ul className="skills-list" key={String(duplicate)} aria-hidden={duplicate || undefined}>
+          {battleGuideItems.map(item => <li className="skill-ticker-item" key={item.name}>
+            <span className="skill-ticker-icon" aria-hidden="true">{item.icon}</span>
+            <span><strong>{item.name}</strong><small>{item.detail}</small></span>
+          </li>)}
+        </ul>)}
+      </div>
+    </div>
+  </section>;
 }
 
 function RoundClock({ round, serverTime }: { round: GameState['round']; serverTime: number }) {

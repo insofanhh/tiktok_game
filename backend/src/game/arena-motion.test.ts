@@ -12,7 +12,7 @@ describe('stickman patrols', () => {
         const p=patrolPosition(slot,time);
         expect(p.x).toBeGreaterThanOrEqual(slot.team==='blue' ? 0 : width!/2);
         expect(p.x+CARD_WIDTH*p.scale).toBeLessThanOrEqual(slot.team==='blue' ? width!/2 : width!);
-        expect(p.y).toBeGreaterThanOrEqual(34);
+        expect(p.y).toBeGreaterThanOrEqual(8);
         expect(p.y+CARD_HEIGHT*p.scale).toBeLessThanOrEqual(height!);
         // A player's complete body stays inside its own patrol sector, avoiding overlaps.
         expect(p.x).toBeGreaterThanOrEqual(slot.left);

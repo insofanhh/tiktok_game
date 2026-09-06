@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EulerStreamSource } from './euler-stream.js';
+import { GameEngine } from '../game/game-engine.js';
 function setup() {
   const sink={onJoin:vi.fn(),onLike:vi.fn(),onGift:vi.fn(),onChat:vi.fn(),onStatus:vi.fn()};
   const source=new EulerStreamSource('test',sink,'unused');
@@ -34,5 +35,29 @@ describe('Euler event translation',()=>{
     dispatch({type:'WebcastLikeMessage',data:{likeCount:7}});
     dispatch({type:'WebcastMemberMessage',data:{actionId:1}});
     expect(sink.onLike).not.toHaveBeenCalled(); expect(sink.onJoin).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('Rose streaks into shield points', () => {
+  it('adds the final ten roses once, including when the final message is retried', () => {
+    const engine = new GameEngine({ random: () => 0 });
+    const sink = {
+      onJoin: vi.fn(), onLike: vi.fn(), onChat: vi.fn(), onStatus: vi.fn(),
+      onGift: engine.handleGift.bind(engine),
+    };
+    const source = new EulerStreamSource('test', sink, 'unused');
+    const dispatch = (message: { type:string; data:unknown }) => (source as unknown as { handleMessage:(message:unknown)=>void }).handleMessage(message);
+    const rose = { user, giftDetails:{ giftType:1, giftName:'Rose' } };
+    for (const repeatCount of [1, 5, 10]) {
+      dispatch({ type:'WebcastGiftMessage', data:{ ...rose, repeatCount, repeatEnd:0, event:{ msgId:'in-progress-' + repeatCount } } });
+    }
+    expect(engine.getState().users).toHaveLength(0);
+    const final = { type:'WebcastGiftMessage', data:{ ...rose, repeatCount:10, repeatEnd:1, event:{ msgId:'completed-10' } } };
+    dispatch(final); dispatch(final);
+    const building = () => engine.getState().grid.flat().find(cell => cell.building?.ownerId === '42')?.building;
+    expect(building()).toMatchObject({ health:100, shieldHealth:10 });
+    dispatch({ type:'WebcastGiftMessage', data:{ ...rose, repeatCount:10, repeatEnd:1, event:{ msgId:'next-completed-10' } } });
+    expect(building()).toMatchObject({ health:100, shieldHealth:20 });
   });
 });

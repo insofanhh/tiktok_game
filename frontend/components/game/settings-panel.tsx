@@ -22,7 +22,7 @@ interface SettingsPanelProps {
   source: SourceStatus;
 }
 
-type SettingsResponse = RuntimeSourceSettings & { error?: string };
+type SettingsResponse = RuntimeSourceSettings & { error?: string; settings?: RuntimeSourceSettings };
 
 export function SettingsPanel({ serverUrl, connection, source }: SettingsPanelProps) {
   const [open, setOpen] = useState(false);
@@ -74,17 +74,16 @@ export function SettingsPanel({ serverUrl, connection, source }: SettingsPanelPr
         body: JSON.stringify({ mode, username }),
       });
       const payload = await readSettingsResponse(response);
-      if (!response.ok) throw new Error(payload.error ?? 'Không thể cập nhật nguồn TikTok');
+      if (!response.ok) {
+        // Live source errors are kept current by source:status, including recovery.
+        if (payload.settings) return;
+        throw new Error(payload.error ?? 'Không thể cập nhật nguồn TikTok');
+      }
 
       setUsername(payload.username);
       setRoundDurationInput(String(payload.roundDurationMinutes ?? 10));
       setHasEulerApiKey(payload.hasEulerApiKey);
-      setFeedback({
-        kind: 'success',
-        message: mode === 'live'
-          ? `Đã kết nối TikTok @${payload.username}`
-          : 'Đã chuyển sang chế độ Mock',
-      });
+      setFeedback(mode === 'live' ? null : { kind: 'success', message: 'Đã chuyển sang chế độ Mock' });
     } catch (error: unknown) {
       setFeedback({
         kind: 'error',
@@ -274,8 +273,8 @@ async function readSettingsResponse(response: Response): Promise<SettingsRespons
 
 function StatusLine({ ok, label }: { ok: boolean; label: string }) {
   return (
-    <span className="flex items-center gap-2">
-      <span className={ok ? 'h-2 w-2 rounded-full bg-emerald-400' : 'h-2 w-2 rounded-full bg-amber-400'} />
+    <span className="flex items-start gap-2" role="status">
+      <span className={ok ? 'mt-1 h-2 w-2 shrink-0 rounded-full bg-emerald-400' : 'mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-400'} />
       {label}
     </span>
   );
