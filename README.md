@@ -1,64 +1,82 @@
-# TikTok Kingdom Clash
+# TikTok Kingdom Clash — Avatar Survival
 
-Web game 2D realtime cho TikTok Live, thiết kế để chạy trong OBS Browser Source. Người xem được xếp phe ngẫu nhiên bằng quà 1 xu; các mốc giá quà khác được chuyển thành hành động xây, tạo khiên hoặc tấn công.
-
-## Yêu cầu
-
-- Node.js 22.13 trở lên
-- npm 10 trở lên
+Game tương tác TikTok Live, giao diện responsive cho điện thoại, màn hình dọc và OBS.
 
 ## Chạy local
 
-```bash
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
-npm install
+Yêu cầu Node.js >=22.13 (khuyến nghị Node 24), npm >=10.
+
+```powershell
+Copy-Item backend/.env.example backend/.env
+Copy-Item frontend/.env.example frontend/.env
+npm ci
 npm run dev
 ```
 
-- Frontend: `http://localhost:3000`
-- Backend: `http://localhost:4100`
-- Bảng điều khiển mock: `http://localhost:3000/?debug=1`
+Chỉ sao chép file môi trường nếu chưa tồn tại, tránh ghi đè cấu hình cá nhân.
 
-Backend mặc định dùng `TIKTOK_MODE=mock`, tự tạo user và gift để kiểm thử toàn bộ vòng lặp game. Đặt `MOCK_INTERVAL_MS=0` nếu chỉ muốn bắn sự kiện bằng bảng điều khiển hoặc HTTP API.
+- Game: http://localhost:3000
+- Thử sự kiện: http://localhost:3000/?debug=1
+- Backend: http://127.0.0.1:4100/health
 
-## Gift mapping
+Mặc định chạy Mock với 16 người, không cần API key. Bật âm thanh bằng nút loa; trình duyệt cần một lần tương tác trước khi phát tiếng. Avatar TikTok được lấy từ profile; ảnh lỗi hoặc thiếu ảnh sẽ dùng chữ cái tên.
 
-| Gift | Hành động |
+## Luật chơi
+
+| Sự kiện | Tác dụng |
 | --- | --- |
-| Rose / Hoa hồng hoặc quà 1 xu | Chọn phe Xanh/Đỏ ngẫu nhiên |
-| Quà 5 xu | Nhà của người tặng bắn nhà đối thủ, trừ 1 HP |
-| Rosa hoặc quà 10 xu | Xây một nhà có 10 HP |
-| Quà 20 xu | Tạo khiên cho một nhà của người tặng; chặn một phát bắn thường |
-| Quà trên 100 xu | Phá hủy ngay một nhà đối thủ, bỏ qua khiên và HP |
+| Người xem vào Live | Tự vào phe đang ít người sống sót hơn; ngẫu nhiên nếu cân bằng. Có 1 avatar cấp 1, 100 HP |
+| 1 tim | 1 phát bắn, trừ 1 HP của đối thủ |
+| Hoa hồng / Rose | Tạo 1 khiên chặn 1 phát bắn, sau đó mất |
+| Rosa | 1 phát bắn trừ 10 HP |
+| Heo may mắn / Lucky Pig | Nâng cấp 2, đặt HP và HP tối đa thành 200 |
+| Hạc giấy / Paper Crane | Tiêu diệt 1 đối thủ |
+| Súng bắn tiền / Money Gun | Tiêu diệt tối đa 10 đối thủ khác nhau |
+| Thiên hà / Galaxy | Tiêu diệt tối đa 20 đối thủ khác nhau |
 
-## Kết nối TikTok thật
+- Khiên không cộng dồn. Một khiên chặn toàn bộ một phát Rosa.
+- Các quà tiêu diệt bỏ qua HP và khiên. Không gây sát thương đồng đội.
+- Cấp 2 không thể nâng tiếp và tặng thêm Heo không hồi máu.
+- Người bị loại chờ vòng tiếp theo; vào lại, tim hoặc tặng quà không cấp thêm mạng trong cùng vòng.
+- Người tham gia được giữ lại và hồi sinh khi chủ phòng bắt đầu vòng tiếp theo. Đổi nguồn Mock/Live bắt đầu một vòng sạch.
+- Chat/tim/quà đầu tiên cũng có thể đăng ký người chơi nếu nguồn Live bỏ lỡ sự kiện vào phòng.
+- Chỉ tên quà được ánh xạ (không phân biệt hoa thường và dấu tiếng Việt), không dùng giá xu để suy đoán.
+- Gift streak áp dụng ở sự kiện kết thúc với số lượng cuối cùng, tối đa 100 quà trong một sự kiện.
+- Tim dùng số lượng trong từng sự kiện, không dùng tổng tim phòng. Server gộp các phát liên tiếp vào cùng mục tiêu để tránh nghẽn với sự kiện nhiều tim.
+- Đấu trường tối đa 400 avatar sống cùng lúc. Người mới khi đầy không được cấp nhân vật; tương tác sau khi có chỗ trống có thể tham gia.
+- Sự kiện Live phụ thuộc dữ liệu TikTok/Euler cung cấp; không có danh sách đầy đủ người đã xem trước khi kết nối. Tim có thể được nền tảng gộp hoặc gửi thưa.
 
-API key Euler vẫn được giữ kín trong `backend/.env`:
+## Kết thúc vòng
+
+Server quản lý thời gian (mặc định 10 phút). Hết giờ, dừng nhận hành động và chốt bảng kết quả, không tự lặp đồng hồ.
+
+Phe thắng có nhiều người sống sót hơn; bằng nhau là hòa. Xếp hạng cá nhân: sống sót trước, sau đó số hạ gục, HP còn lại, thời gian sống sót; user ID dùng để chốt thứ tự nếu vẫn bằng nhau. Bảng tổng kết hiển thị 10 giây, sau đó server tự bắt đầu vòng mới và hồi sinh người tham gia. Đồng hồ đếm ngược được đồng bộ tới mọi màn hình. Kết quả lưu trong bộ nhớ và mất khi khởi động lại backend.
+
+Bảng tổng kết có top 3 và toàn bộ danh sách. Chủ phòng có thể bấm **Bắt đầu vòng tiếp theo**. Lưu thời lượng trong cài đặt cũng bắt đầu vòng mới và xóa điểm vòng cũ.
+
+## TikTok Live
+
+Cấu hình trong `backend/.env`:
 
 ```env
-EULER_API_KEY=euler_api_key_cua_ban
+EULER_API_KEY=your_key
 ```
 
-Sau khi backend chạy, bấm nút bánh răng trên thanh đầu game, nhập `@username` hoặc dán URL TikTok Live rồi chọn **Lưu & kết nối Live**. Username và chế độ nguồn được lưu trong `backend/data/runtime-settings.json`, vì vậy không cần sửa code hoặc nhập lại sau mỗi lần khởi động. Có thể bấm **Dùng Mock** để quay về dữ liệu giả lập.
+Mở cài đặt, nhập @username hoặc link TikTok Live, chọn **Lưu & kết nối Live**. Nguồn Euler nhận WebcastMemberMessage (actionId=1), WebcastLikeMessage (likeCount), chat và gift. Bộ nhớ chống lặp giữ 10.000 message ID gần nhất. API key không trả về frontend.
 
-Backend chỉ bind vào `127.0.0.1`; API cài đặt không trả Euler API key về frontend. Kết nối Live dùng WebSocket managed của Euler Stream nên hoạt động với gói Community; adapter xử lý gift streak khi sự kiện kết thúc để tránh tính trùng quà.
+Backend mặc định chỉ bind 127.0.0.1; các API điều khiển dành cho máy của chủ phòng. Giao diện tự thích ứng kích thước trình duyệt; để truy cập từ điện thoại khác trong mạng cần cấu hình HOST, CLIENT_ORIGIN và NEXT_PUBLIC_GAME_SERVER_URL phù hợp.
 
-## Mock HTTP API
+## Mock và OBS
 
-```bash
-curl -X POST http://127.0.0.1:4100/api/mock/gift \
-  -H "Content-Type: application/json" \
-  -d '{"viewer":{"userId":"u1","uniqueId":"demo","nickname":"Demo"},"giftName":"Rose","diamondCount":1,"repeatCount":1}'
+Đặt `MOCK_INTERVAL_MS=0` nếu muốn chỉ thao tác thủ công, không phát tim/quà tự động. Trang `?debug=1` có chọn người chơi, thêm người vào Live, tim, mọi loại quà và kết thúc vòng. Các API mock bị khóa khi đang ở Live.
 
-curl -X POST http://127.0.0.1:4100/api/mock/gift \
-  -H "Content-Type: application/json" \
-  -d '{"viewer":{"userId":"u1","uniqueId":"demo","nickname":"Demo"},"giftName":"Rosa","diamondCount":10,"repeatCount":1}'
-```
+- OBS dọc: Browser Source 1080 × 1920.
+- OBS ngang: Browser Source 1920 × 1080.
+- Dùng URL thường để không hiển thị bảng thử nghiệm; bật âm thanh qua chức năng Interact của OBS.
+- Hai phe hiển thị cạnh nhau; đấu trường tự thu nhỏ avatar theo số người và diện tích màn hình để hiện đủ người, không cuộn. Bảng hạng vẫn có thể cuộn.
+- Hỗ trợ giảm chuyển động theo cài đặt hệ điều hành.
 
-## OBS
-
-Thêm Browser Source với kích thước `1920x1080`, trỏ đến URL frontend và bật tùy chọn tắt source khi không hiển thị nếu muốn giải phóng GPU. URL bình thường không hiện bảng debug.
+API: POST `/api/mock/join` với `{viewer}`, POST `/api/mock/like` với `{viewer,count}`, POST `/api/mock/gift` với `{viewer,giftName,repeatCount}`, POST `/api/mock/finish`, POST `/api/round/restart`.
 
 ## Kiểm tra
 
@@ -67,3 +85,11 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+## Đấu trường người que
+
+Nhân vật chạy trong nửa sân của đội, dùng avatar TikTok làm đầu, thanh HP trên đầu và tên dưới chân. Khi đông, toàn bộ nhân vật tự thu nhỏ và chia khu vực di chuyển để không chồng lên nhau. Chạm nhân vật để xem tên, HP và cấp độ đầy đủ.
+
+Đạn xuất phát từ súng, có chớp đầu nòng, giật súng, phản ứng trúng đạn và rung sân. Chế độ giảm chuyển động của hệ điều hành tắt chạy/rung nhưng giữ thông tin trận đấu. Canvas chạy tối đa 30 FPS, dừng khi tab bị ẩn.
+
+Tiếng súng dùng mẫu ghi âm, được cắt ngắn và cân mức; có bộ nén âm và giới hạn số mẫu phát cùng lúc. Nguồn và giấy phép: frontend/public/audio/CREDITS.txt (Vincent Sevedge / Tabasco, CC BY 3.0 theo ghi chú trong gói gốc).

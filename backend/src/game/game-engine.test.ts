@@ -1,94 +1,194 @@
 import { describe, expect, it } from 'vitest';
 import { GameEngine, resolveGiftKind } from './game-engine.js';
 import type { ViewerIdentity } from './types.js';
-
-const blue: ViewerIdentity = { userId: 'blue-1', uniqueId: 'blue', nickname: 'Blue' };
-const red: ViewerIdentity = { userId: 'red-1', uniqueId: 'red', nickname: 'Red' };
-
-function setupBattle(): GameEngine {
-  const values = [0, 0.75, 0, 0];
-  const engine = new GameEngine({ random: () => values.shift() ?? 0 });
-  engine.handleGift(blue, { giftName: 'Rose', diamondCount: 1, repeatCount: 1 });
-  engine.handleGift(red, { giftName: 'Rose', diamondCount: 1, repeatCount: 1 });
-  engine.handleGift(blue, { giftName: 'Rosa', diamondCount: 10, repeatCount: 1 });
-  engine.handleGift(red, { giftName: 'Rosa', diamondCount: 10, repeatCount: 1 });
+const blue: ViewerIdentity = { userId:'blue', uniqueId:'blue', nickname:'Blue', avatarUrl:'https://example.com/avatar.jpg' };
+const red: ViewerIdentity = { userId:'red', uniqueId:'red', nickname:'Red' };
+const unit = (engine: GameEngine, id: string) => engine.getState().grid.flat().find(c => c.building?.ownerId === id)?.building;
+const gift = (engine: GameEngine, viewer: ViewerIdentity, giftName: string, repeatCount = 1) => engine.handleGift(viewer,{giftName,repeatCount});
+function battle() {
+  const engine = new GameEngine({ random: () => 0 });
+  engine.handleJoin(blue); engine.handleJoin(red);
   return engine;
 }
-
-describe('GameEngine', () => {
-  it('uses a Rose or any 1-coin gift to assign a random team', () => {
-    const engine = new GameEngine({ random: () => 0.75 });
-    const [action] = engine.handleGift(blue, { giftName: 'Rose', diamondCount: 1, repeatCount: 1 });
-
-    expect(action?.type).toBe('JOIN');
-    expect(action?.team).toBe('red');
-    expect(engine.getState().users[0]?.team).toBe('red');
-    expect(engine.getState().scores).toEqual({ blue: 0, red: 0 });
+describe('survival rules', () => {
+  it('grants one 100 HP avatar on presence and balances the teams', () => {
+    const e=battle();
+    expect(unit(e,'blue')).toMatchObject({health:100,maxHealth:100,level:1,avatarUrl:blue.avatarUrl});
+    expect(e.getState().scores).toEqual({blue:1,red:1});
+    e.handleJoin({...blue,nickname:'Updated'});
+    expect(e.getState().users).toHaveLength(2);
+    expect(unit(e,'blue')?.ownerName).toBe('Updated');
   });
-
-  it('builds a 10 HP house for Rosa or any 10-coin gift', () => {
-    const engine = new GameEngine({ random: () => 0 });
-    engine.handleGift(blue, { giftName: 'Rose', diamondCount: 1, repeatCount: 1 });
-    const [action] = engine.handleGift(blue, { giftName: 'Rosa', diamondCount: 10, repeatCount: 1 });
-    const building = engine.getState().grid[0]?.[0]?.building;
-
-    expect(action?.type).toBe('BUILD');
-    expect(building?.health).toBe(10);
-    expect(building?.maxHealth).toBe(10);
+  it('can enroll viewers whose member event was missed via chat/like/gift', () => {
+    const e=new GameEngine({random:()=>0});
+    e.handleChat(blue,'hello');
+    e.handleLike(red,1);
+    expect(unit(e,'blue')?.health).toBe(99);
+    expect(e.getState().users).toHaveLength(2);
   });
-
-  it('fires from an owned house and removes one HP per 5-coin gift', () => {
-    const engine = setupBattle();
-    const [action] = engine.handleGift(blue, { giftName: '5 Coin Gift', diamondCount: 5, repeatCount: 1 });
-    const target = engine.getState().grid[0]?.[10]?.building;
-
-    expect(action?.type).toBe('DAMAGE');
-    expect(action?.sourceX).toBe(0);
-    expect(action?.x).toBe(10);
-    expect(action?.remainingHealth).toBe(9);
-    expect(target?.health).toBe(9);
+  it('counts individual hearts in a bundled event, never room total likes', () => {
+    const e=battle();
+    e.handleLike(blue,7);
+    expect(unit(e,'red')?.health).toBe(93);
+    expect(e.getState().users[0]?.shots).toBe(7);
   });
-
-  it('destroys a house only after ten regular shots', () => {
-    const engine = setupBattle();
-    let lastType: string | undefined;
-    for (let shot = 0; shot < 10; shot += 1) {
-      [lastType] = engine
-        .handleGift(blue, { giftName: '5 Coin Gift', diamondCount: 5, repeatCount: 1 })
-        .map((action) => action.type);
-    }
-
-    expect(lastType).toBe('DESTROY');
-    expect(engine.getState().scores.red).toBe(0);
-    expect(engine.getState().leaderboard.destroyers[0]?.score).toBe(1);
+  it('consumes a rose shield on one heart and applies the remaining hearts', () => {
+    const e=battle(); gift(e,red,'Hoa hồng');
+    e.handleLike(blue,3);
+    expect(unit(e,'red')).toMatchObject({health:98,shielded:false});
+    expect(e.getState().users[0]?.shots).toBe(3);
   });
-
-  it('uses a shield to block one regular shot without losing HP', () => {
-    const engine = setupBattle();
-    engine.handleGift(red, { giftName: '20 Coin Gift', diamondCount: 20, repeatCount: 1 });
-    const [blocked] = engine.handleGift(blue, { giftName: '5 Coin Gift', diamondCount: 5, repeatCount: 1 });
-    const target = engine.getState().grid[0]?.[10]?.building;
-
-    expect(blocked?.type).toBe('BLOCKED');
-    expect(target?.shielded).toBe(false);
-    expect(target?.health).toBe(10);
+  it('does not stack shields from repeated roses', () => {
+    const e=battle(); gift(e,red,'Rose',8);
+    e.handleLike(blue,2);
+    expect(unit(e,'red')?.health).toBe(99);
+    expect(e.getState().users[1]?.shielded).toBe(1);
   });
-
-  it('lets gifts over 100 coins destroy a shielded house immediately', () => {
-    const engine = setupBattle();
-    engine.handleGift(red, { giftName: '20 Coin Gift', diamondCount: 20, repeatCount: 1 });
-    const [destroyed] = engine.handleGift(blue, { giftName: 'Big Gift', diamondCount: 101, repeatCount: 1 });
-
-    expect(destroyed?.type).toBe('MEGA_DESTROY');
-    expect(engine.getState().scores.red).toBe(0);
+  it('Rosa deals ten HP per gift and a shield blocks one entire shot', () => {
+    const e=battle(); gift(e,red,'Rose'); gift(e,blue,'Rosa',3);
+    expect(unit(e,'red')).toMatchObject({health:80,shielded:false});
   });
+  it('Lucky Pig upgrades once to level 2 with 200 HP, without repeat healing', () => {
+    const e=battle(); e.handleLike(blue,20);
+    gift(e,red,'Heo may mắn');
+    expect(unit(e,'red')).toMatchObject({health:200,maxHealth:200,level:2});
+    e.handleLike(blue,2); gift(e,red,'Lucky Pig',5);
+    expect(unit(e,'red')?.health).toBe(198);
+    expect(e.getState().users[1]?.upgraded).toBe(1);
+  });
+  it('eliminates an avatar when HP reaches zero and never re-enrolls that user in the same round', () => {
+    const e=battle(); e.handleLike(blue,100);
+    expect(unit(e,'red')).toBeUndefined();
+    e.handleJoin(red); gift(e,red,'Lucky Pig'); e.handleLike(red,100);
+    expect(unit(e,'red')).toBeUndefined();
+    expect(unit(e,'blue')?.health).toBe(100);
+    expect(e.getState().users[0]?.destroyed).toBe(1);
+  });
+  it('Paper Crane eliminates one opponent through shield and level 2 HP', () => {
+    const e=battle(); gift(e,red,'Lucky Pig'); gift(e,red,'Rose');
+    gift(e,blue,'Hạc giấy');
+    expect(unit(e,'red')).toBeUndefined();
+    expect(e.getState().scores).toEqual({blue:1,red:0});
+  });
+  it.each([['Money Gun',10],['Thiên hà',20]] as const)('%s eliminates %i distinct opponents', (name,count) => {
+    const e=new GameEngine({random:()=>0});
+    for(let i=0;i<44;i++) e.handleJoin({userId:'u'+i,uniqueId:'u'+i,nickname:'U'+i});
+    const viewer=e.getState().users[0]!;
+    const before=e.getState().scores.red;
+    const actions=gift(e,viewer,name);
+    expect(e.getState().scores.red).toBe(before-count);
+    expect(new Set(actions.map(a=>a.targetUserId)).size).toBe(count);
+    expect(e.getState().users[0]?.destroyed).toBe(count);
+  });
+  it('stops multi-target gifts when fewer opponents remain and never attacks allies', () => {
+    const e=battle(); gift(e,blue,'Galaxy',100);
+    expect(e.getState().scores).toEqual({blue:1,red:0});
+    expect(e.getState().users[0]?.destroyed).toBe(1);
+  });
+  it('bounds enormous like bundles by remaining HP rather than looping once per like', () => {
+    const e=battle();
+    const actions=e.handleLike(blue,Number.MAX_SAFE_INTEGER);
+    expect(actions).toHaveLength(1);
+    expect(e.getState().users[0]?.shots).toBe(100);
+  });
+  it.each([NaN,Infinity,-1,0,1.5])('rejects invalid like count %s', count => {
+    const e=battle(); e.handleLike(blue,count);
+    expect(unit(e,'red')?.health).toBe(100);
+  });
+  it('ignores unmapped gifts even when their price matches a mapped gift', () => {
+    const e=battle();
+    expect(resolveGiftKind('Unknown',9999)).toBeUndefined();
+    e.handleGift(blue,{giftName:'Unknown',diamondCount:1,repeatCount:1});
+    expect(unit(e,'blue')?.shielded).toBe(false);
+  });
+  it('refuses new users when the arena has no free cells', () => {
+    const e=new GameEngine({gridSize:2,random:()=>0});
+    for(let i=0;i<5;i++) e.handleJoin({userId:''+i,uniqueId:''+i,nickname:''+i});
+    expect(e.getState().users).toHaveLength(4);
+  });
+});
+describe('server-controlled rounds', () => {
+  it('ends at the exact deadline, freezes ranking, rejects late input, and keeps the result', () => {
+    let now=1000;
+    const e=new GameEngine({now:()=>now,durationMs:1000,random:()=>0});
+    e.handleJoin(blue); e.handleJoin(red); e.handleLike(blue,20);
+    now=2000;
+    expect(e.finishIfExpired()).toBe(true);
+    const result=e.getState();
+    expect(result.round.status).toBe('finished');
+    expect(result.round.ranking[0]?.userId).toBe('blue');
+    expect(result.round.winner).toBe('draw');
+    expect(e.handleLike(red,100)).toEqual([]);
+    expect(gift(e,red,'Galaxy')).toEqual([]);
+    expect(e.handleJoin({userId:'late',uniqueId:'late',nickname:'Late'})).toEqual([]);
+    now=99999;
+    expect(e.getState().round).toEqual(result.round);
+    expect(e.finishIfExpired()).toBe(false);
+  });
+  it('ranks survivors ahead of eliminated users and returns immutable snapshots', () => {
+    let now=100;
+    const e=new GameEngine({now:()=>now,random:()=>0});
+    e.handleJoin(blue);e.handleJoin(red);
+    now=200;gift(e,blue,'Paper Crane');
+    now=300;
+    const result=e.finishRound();
+    expect(result.round.winner).toBe('blue');
+    expect(result.round.ranking.map(r=>r.alive)).toEqual([true,false]);
+    expect(result.round.ranking[1]?.survivalMs).toBe(100);
+    result.round.ranking[0]!.health=1;
+    expect(e.getState().round.ranking[0]?.health).toBe(100);
+  });
+  it('starts a new round and resurrects participants without old elimination timestamps or scores', () => {
+    const e=battle(); gift(e,blue,'Paper Crane');
+    const old=e.finishRound().round.id;
+    const next=e.reset(60000,true);
+    expect(next.round.id).not.toBe(old);
+    expect(next.round.status).toBe('active');
+    expect(next.users.every(u=>u.destroyed===0 && u.eliminatedAt===undefined)).toBe(true);
+    expect(next.scores).toEqual({blue:1,red:1});
+    expect(unit(e,'red')?.health).toBe(100);
+  });
+  it('returns an empty, valid summary for a round with no viewers', () => {
+    const e=new GameEngine();
+    expect(e.finishRound().round).toMatchObject({winner:'draw',ranking:[],status:'finished'});
+  });
+});
 
-  it('maps supported coin values and ignores unsupported prices', () => {
-    expect(resolveGiftKind('anything', 1)).toBe('join');
-    expect(resolveGiftKind('anything', 5)).toBe('attack');
-    expect(resolveGiftKind('anything', 10)).toBe('build');
-    expect(resolveGiftKind('anything', 20)).toBe('shield');
-    expect(resolveGiftKind('anything', 100)).toBeUndefined();
-    expect(resolveGiftKind('anything', 101)).toBe('megaAttack');
+describe('automatic next round', () => {
+  it('keeps results for exactly ten seconds, then revives everyone once', () => {
+    let now=1000;
+    const e=new GameEngine({now:()=>now,durationMs:60000,random:()=>0});
+    e.handleJoin(blue); e.handleJoin(red); gift(e,blue,'Paper Crane');
+    const result=e.finishRound();
+    expect(result.round.restartAt).toBe(11000);
+    now=10999;
+    expect(e.restartIfDue()).toBe(false);
+    expect(e.getState().round.id).toBe(result.round.id);
+    now=11000;
+    expect(e.restartIfDue()).toBe(true);
+    const next=e.getState();
+    expect(next.round).toMatchObject({status:'active',startedAt:11000,endsAt:71000,restartAt:null,ranking:[]});
+    expect(next.round.id).not.toBe(result.round.id);
+    expect(next.scores).toEqual({blue:1,red:1});
+    expect(next.users.every(u=>u.destroyed===0 && u.eliminatedAt===undefined)).toBe(true);
+    expect(e.restartIfDue()).toBe(false);
+  });
+  it('starts the full summary period when a delayed server notices expiry', () => {
+    let now=1000;
+    const e=new GameEngine({now:()=>now,durationMs:1000});
+    now=9000;
+    e.finishIfExpired();
+    expect(e.getState().round.restartAt).toBe(19000);
+    expect(e.restartIfDue()).toBe(false);
+  });
+  it('cancels the old automatic deadline when a round is restarted manually', () => {
+    let now=1000;
+    const e=new GameEngine({now:()=>now,durationMs:60000});
+    e.finishRound();
+    now=2000;
+    const manual=e.reset();
+    now=11000;
+    expect(e.restartIfDue()).toBe(false);
+    expect(e.getState().round.id).toBe(manual.round.id);
   });
 });

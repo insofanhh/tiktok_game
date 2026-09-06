@@ -4,7 +4,7 @@ import {
   SchemaVersion,
   createWebSocketUrl,
 } from '@eulerstream/euler-websocket-sdk';
-import type { WebcastChatMessage, WebcastGiftMessage } from '@eulerstream/euler-websocket-sdk/v1';
+import type { WebcastChatMessage, WebcastGiftMessage, WebcastMemberMessage, WebcastLikeMessage } from '@eulerstream/euler-websocket-sdk/v1';
 import WebSocket, { type RawData } from 'ws';
 import type { ViewerIdentity } from '../game/types.js';
 import type { EventSink, LiveEventSource } from './event-source.js';
@@ -19,6 +19,7 @@ const CONNECT_TIMEOUT_MS = 20_000;
 export class EulerStreamSource implements LiveEventSource {
   private socket: WebSocket | undefined;
   private intentionalStop = false;
+  private readonly seen = new Set<string>();
 
   constructor(
     private readonly username: string,
@@ -121,6 +122,27 @@ export class EulerStreamSource implements LiveEventSource {
   }
 
   private handleMessage(message: EulerEnvelope): void {
+    if (isRecord(message.data) && isRecord(message.data.event)) {
+      const id = message.data.event.msgId;
+      if (typeof id === 'string' && id && id !== '0') {
+        const key = message.type + ':' + id;
+        if (this.seen.has(key)) return;
+        this.seen.add(key);
+        if (this.seen.size > 10000) this.seen.delete(this.seen.values().next().value!);
+      }
+    }
+    if (message.type === 'WebcastMemberMessage') {
+      const data = message.data as WebcastMemberMessage;
+      const viewer = toViewer(data.user);
+      if (viewer && data.actionId === 1) this.sink.onJoin(viewer);
+      return;
+    }
+    if (message.type === 'WebcastLikeMessage') {
+      const data = message.data as WebcastLikeMessage;
+      const viewer = toViewer(data.user);
+      if (viewer) this.sink.onLike(viewer, Number(data.likeCount));
+      return;
+    }
     if (message.type === 'WebcastChatMessage') {
       const data = message.data as WebcastChatMessage;
       const viewer = toViewer(data.user);
@@ -166,7 +188,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function toViewer(user: WebcastChatMessage['user'] | WebcastGiftMessage['user']): ViewerIdentity | null {
   if (!user?.userId) return null;
-  const avatarUrl = user.profilePicture?.urls[0];
+  const avatarUrl = user.profilePicture?.urls?.[0];
   return {
     userId: user.userId,
     uniqueId: user.uniqueId || user.userId,

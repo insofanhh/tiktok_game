@@ -150,7 +150,7 @@ export function SettingsPanel({ serverUrl, connection, source }: SettingsPanelPr
         <Settings className="h-4 w-4" />
       </DialogTrigger>
 
-      <DialogContent className="border border-white/15 bg-[#0b111b] text-slate-100 ring-0 sm:max-w-md">
+      <DialogContent className="border border-white/15 bg-[#0b111b] text-slate-100 ring-0 sm:max-w-md max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg font-black tracking-wide text-white">
             <Radio className="h-5 w-5 text-rose-400" /> CÀI ĐẶT GAME &amp; LIVE
@@ -207,7 +207,7 @@ export function SettingsPanel({ serverUrl, connection, source }: SettingsPanelPr
                 Lưu thời gian
               </Button>
             </div>
-            <p className="text-xs text-slate-500">Từ 1–120 phút. Khi lưu, đồng hồ sẽ bắt đầu một vòng mới.</p>
+            <p className="text-xs text-slate-500">Từ 1–120 phút. Lưu sẽ bắt đầu vòng mới, hồi sinh mọi người và xóa điểm vòng hiện tại.</p>
           </div>
 
           <div className="grid gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">

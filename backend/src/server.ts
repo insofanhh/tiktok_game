@@ -43,6 +43,8 @@ const viewerSchema = z.object({
   nickname: z.string().min(1).max(80),
   avatarUrl: z.url().optional(),
 });
+const memberSchema = z.object({ viewer: viewerSchema });
+const likeSchema = z.object({ viewer: viewerSchema, count: z.number().int().min(1).max(100000).default(1) });
 const chatSchema = z.object({ viewer: viewerSchema, comment: z.string().max(200) });
 const giftSchema = z.object({
   viewer: viewerSchema,
@@ -87,7 +89,8 @@ let runtimeSettings = await settingsStore.load({
   username: normalizeTikTokUsername(env.TIKTOK_USERNAME),
   roundDurationMinutes: env.ROUND_DURATION_MINUTES,
 });
-let roundStartedAt = Date.now();
+engine.reset(runtimeSettings.roundDurationMinutes * 60_000);
+let roundStartedAt = engine.getState().round.startedAt;
 let source: LiveEventSource | null = null;
 let sourceTransition: Promise<void> = Promise.resolve();
 
@@ -120,7 +123,20 @@ function processGift(viewer: ViewerIdentity, gift: IncomingGift): GameAction[] {
   return actions;
 }
 
+function processJoin(viewer: ViewerIdentity): GameAction[] {
+  return publishActions(engine.handleJoin(viewer));
+}
+function processLike(viewer: ViewerIdentity, count: number): GameAction[] {
+  return publishActions(engine.handleLike(viewer, count));
+}
+function publishActions(actions: GameAction[]): GameAction[] {
+  for (const action of actions) io.emit('game:action', action);
+  publishState();
+  return actions;
+}
 const sink: EventSink = {
+  onJoin: processJoin,
+  onLike: processLike,
   onChat: processChat,
   onGift: processGift,
   onStatus: (status) => {
@@ -149,7 +165,14 @@ async function activateSource(settings: RuntimeSettings, persist: boolean): Prom
     source = null;
   }
 
+  const changed = runtimeSettings.mode !== settings.mode || runtimeSettings.username !== settings.username;
   runtimeSettings = settings;
+  if (changed) {
+    engine.reset(settings.roundDurationMinutes * 60_000);
+    roundStartedAt = engine.getState().round.startedAt;
+    publishState();
+    publishRuntimeSettings();
+  }
   if (persist) await settingsStore.save(settings);
 
   sink.onStatus({
@@ -246,7 +269,9 @@ app.post('/api/settings/round', async (request, response) => {
   try {
     await settingsStore.save(nextSettings);
     runtimeSettings = nextSettings;
-    roundStartedAt = Date.now();
+    engine.reset(runtimeSettings.roundDurationMinutes * 60_000, true);
+    roundStartedAt = engine.getState().round.startedAt;
+    publishState();
     publishRuntimeSettings();
     response.json(publicSettings());
   } catch (error: unknown) {
@@ -255,6 +280,32 @@ app.post('/api/settings/round', async (request, response) => {
   }
 });
 
+app.use('/api/mock', (_request, response, next) => {
+  if (runtimeSettings.mode !== 'mock') { response.status(403).json({ error: 'Chỉ dùng được trong chế độ Mock' }); return; }
+  next();
+});
+app.post('/api/mock/join', (request, response) => {
+  const parsed = memberSchema.safeParse(request.body);
+  if (!parsed.success) { response.status(400).json({ error: parsed.error.flatten() }); return; }
+  response.json({ actions: processJoin(toViewer(parsed.data.viewer)), state: engine.getState() });
+});
+app.post('/api/mock/like', (request, response) => {
+  const parsed = likeSchema.safeParse(request.body);
+  if (!parsed.success) { response.status(400).json({ error: parsed.error.flatten() }); return; }
+  response.json({ actions: processLike(toViewer(parsed.data.viewer), parsed.data.count), state: engine.getState() });
+});
+app.post('/api/mock/finish', (_request, response) => {
+  const state = engine.finishRound();
+  publishState();
+  response.json(state);
+});
+app.post('/api/round/restart', (_request, response) => {
+  const state = engine.reset(runtimeSettings.roundDurationMinutes * 60_000, true);
+  roundStartedAt = state.round.startedAt;
+  publishState();
+  publishRuntimeSettings();
+  response.json(state);
+});
 app.post('/api/mock/chat', (request, response) => {
   const parsed = chatSchema.safeParse(request.body);
   if (!parsed.success) {
@@ -282,6 +333,8 @@ app.post('/api/mock/gift', (request, response) => {
 
 app.post('/api/mock/reset', (_request, response) => {
   const state = engine.reset();
+  roundStartedAt = state.round.startedAt;
+  publishRuntimeSettings();
   io.emit('game:state', state);
   response.json(state);
 });
@@ -300,7 +353,24 @@ httpServer.listen(env.PORT, env.HOST, () => {
   });
 });
 
+let publishedRoundStatus = engine.getState().round.status;
+const roundTimer = setInterval(() => {
+  engine.finishIfExpired();
+  const restarted = engine.restartIfDue();
+  const state = engine.getState();
+  if (restarted) {
+    roundStartedAt = state.round.startedAt;
+    publishRuntimeSettings();
+  }
+  const status = state.round.status;
+  if (restarted || status !== publishedRoundStatus) {
+    publishedRoundStatus = status;
+    publishState();
+  }
+}, 250);
+
 async function shutdown(): Promise<void> {
+  clearInterval(roundTimer);
   await sourceTransition;
   if (source) await source.stop();
   io.close();

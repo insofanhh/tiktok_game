@@ -1,0 +1,12 @@
+Gunshot audio
+Original author: Vincent Sevedge (Tabasco)
+Copyright (c) 2009 Vincent Sevedge
+Source: https://opengameart.org/content/gunshot-sounds
+Archive: https://opengameart.org/sites/default/files/sounds.zip
+License: Creative Commons Attribution 3.0 Unported
+https://creativecommons.org/licenses/by/3.0/
+
+The source page labels the collection CC0; this project follows the
+CC BY 3.0 notice included in the original archive and provides attribution.
+Changes: one shot excerpted from sks.wav and shotty.wav, mono downmix,
+DC removal, peak normalization, fade-out, and 24 kHz resampling.

@@ -7,6 +7,8 @@ export interface SourceStatus {
 }
 
 export interface EventSink {
+  onJoin: (viewer: ViewerIdentity) => void;
+  onLike: (viewer: ViewerIdentity, count: number) => void;
   onChat: (viewer: ViewerIdentity, comment: string) => void;
   onGift: (viewer: ViewerIdentity, gift: IncomingGift) => void;
   onStatus: (status: SourceStatus) => void;

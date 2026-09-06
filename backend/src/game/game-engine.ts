@@ -1,344 +1,204 @@
 import { randomUUID } from 'node:crypto';
-import type {
-  Building,
-  GameAction,
-  GameState,
-  GiftKind,
-  GridCell,
-  IncomingGift,
-  LeaderboardEntry,
-  Team,
-  UserStats,
-  ViewerIdentity,
-} from './types.js';
+import type { GameAction, GameState, GiftKind, GridCell, IncomingGift, RankingEntry, Team, UserStats, ViewerIdentity } from './types.js';
 
-export interface GameEngineOptions {
-  gridSize?: number;
-  random?: () => number;
-}
-
-const GIFT_ALIASES: Readonly<Record<string, GiftKind>> = {
-  rose: 'join',
-  'hoa hồng': 'join',
-  '🌹': 'join',
-  rosa: 'build',
+export interface GameEngineOptions { gridSize?: number; random?: () => number; now?: () => number; durationMs?: number }
+const aliases: Record<string, GiftKind> = {
+  rose: 'shield', 'hoa hong': 'shield', '🌹': 'shield', rosa: 'attack',
+  'lucky pig': 'upgrade', 'heo may man': 'upgrade', 'lon may man': 'upgrade',
+  'paper crane': 'eliminate', 'hac giay': 'eliminate',
+  'money gun': 'eliminate10', 'sung ban tien': 'eliminate10',
+  galaxy: 'eliminate20', 'thien ha': 'eliminate20',
 };
-
+export function resolveGiftKind(name: string, _diamonds?: number): GiftKind | undefined {
+  return aliases[name.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/\s+/g, ' ')];
+}
 export class GameEngine {
   private readonly gridSize: number;
   private readonly random: () => number;
+  private readonly now: () => number;
   private readonly grid: GridCell[][];
   private readonly users = new Map<string, UserStats>();
   private version = 0;
-  private updatedAt = Date.now();
+  private updatedAt: number;
+  private durationMs: number;
+  private round: GameState['round'];
 
   constructor(options: GameEngineOptions = {}) {
     this.gridSize = options.gridSize ?? 20;
+    if (!Number.isInteger(this.gridSize) || this.gridSize < 2 || this.gridSize % 2) throw new Error('gridSize must be even and >= 2');
     this.random = options.random ?? Math.random;
-
-    if (this.gridSize < 2 || this.gridSize % 2 !== 0) {
-      throw new Error('gridSize must be an even number greater than or equal to 2');
-    }
-
+    this.now = options.now ?? Date.now;
+    this.durationMs = options.durationMs ?? 600_000;
+    this.updatedAt = this.now();
+    this.round = this.newRound();
     this.grid = Array.from({ length: this.gridSize }, (_, y) =>
-      Array.from({ length: this.gridSize }, (_, x): GridCell => ({
-        x,
-        y,
-        territory: x < this.gridSize / 2 ? 'blue' : 'red',
-      })),
-    );
+      Array.from({ length: this.gridSize }, (_, x) => ({ x, y, territory: x < this.gridSize / 2 ? 'blue' : 'red' })));
   }
-
-  handleChat(_viewer: ViewerIdentity, _comment: string): GameAction | null {
-    return null;
+  private newRound(): GameState['round'] {
+    const startedAt = this.now();
+    return { id: randomUUID(), status: 'active', startedAt, endsAt: startedAt + this.durationMs, restartAt: null, winner: null, ranking: [] };
   }
-
-  handleGift(viewer: ViewerIdentity, gift: IncomingGift): GameAction[] {
-    const kind = resolveGiftKind(gift.giftName, gift.diamondCount);
-    if (kind === 'join') return [this.joinRandomTeam(viewer)];
-
-    const stats = this.users.get(viewer.userId);
-    if (!stats || !kind) {
-      const fallbackTeam: Team = stats?.team ?? 'blue';
-      const reason = stats
-        ? `Quà ${gift.giftName} chưa được gán hành động`
-        : `${viewer.nickname} cần tặng quà 1 xu để chọn phe trước`;
-      return [this.createAction('IGNORED', fallbackTeam, viewer, reason)];
+  finishIfExpired(): boolean {
+    if (this.round.status === 'finished' || this.now() < this.round.endsAt) return false;
+    this.finishRound();
+    return true;
+  }
+  finishRound(): GameState {
+    if (this.round.status === 'active') {
+      this.round.endsAt = Math.min(this.now(), this.round.endsAt);
+      this.round.status = 'finished';
+      this.round.restartAt = this.now() + 10_000;
+      this.round.ranking = this.rank();
+      const scores = this.scores();
+      this.round.winner = scores.blue === scores.red ? 'draw' : scores.blue > scores.red ? 'blue' : 'red';
+      this.touch();
     }
-
-    const actions: GameAction[] = [];
-    const repeats = Math.max(1, Math.min(100, Math.floor(gift.repeatCount)));
-    for (let index = 0; index < repeats; index += 1) {
-      actions.push(this.applyGift(kind, stats, viewer));
+    return this.getState();
+  }
+  restartIfDue(): boolean {
+    if (this.round.status !== 'finished' || this.round.restartAt === null || this.now() < this.round.restartAt) return false;
+    this.reset(this.durationMs, true);
+    return true;
+  }
+  handleJoin(viewer: ViewerIdentity): GameAction[] {
+    this.finishIfExpired();
+    if (this.round.status === 'finished') return [];
+    const existing = this.users.get(viewer.userId);
+    if (existing) {
+      Object.assign(existing, viewer);
+      const cell = this.owned(viewer.userId);
+      if (cell?.building) Object.assign(cell.building, { ownerName: viewer.nickname, ...(viewer.avatarUrl ? { avatarUrl: viewer.avatarUrl } : {}) });
+      this.touch();
+      return []; // Presence retries never grant another life.
+    }
+    const scores = this.scores();
+    const team: Team = scores.blue === scores.red ? (this.random() < .5 ? 'blue' : 'red') : scores.blue < scores.red ? 'blue' : 'red';
+    const cell = this.pick(c => c.territory === team && !c.building);
+    if (!cell) return [this.action('IGNORED', team, viewer, 'Đấu trường đã đủ 400 người chơi')];
+    this.users.set(viewer.userId, { ...viewer, team, built: 1, upgraded: 0, shielded: 0, destroyed: 0, shots: 0, damageDealt: 0, joinedAt: this.now() });
+    cell.building = { id: randomUUID(), ownerId: viewer.userId, ownerName: viewer.nickname, ...(viewer.avatarUrl ? { avatarUrl: viewer.avatarUrl } : {}), team, level: 1, shielded: false, health: 100, maxHealth: 100 };
+    this.touch();
+    return [this.action('JOIN', team, viewer, 'Vào trận · 100 HP', cell)];
+  }
+  handleChat(viewer: ViewerIdentity, _comment: string): GameAction | null {
+    return this.handleJoin(viewer)[0] ?? null;
+  }
+  handleLike(viewer: ViewerIdentity, count: number): GameAction[] {
+    if (!Number.isSafeInteger(count) || count <= 0) return [];
+    const actions = this.handleJoin(viewer);
+    if (this.round.status === 'finished') return [];
+    const stats = this.users.get(viewer.userId);
+    if (!stats || !this.owned(viewer.userId)) return actions;
+    let remaining = count;
+    // Batch consecutive one-HP shots at each selected opponent. Work is bounded by opponents, not the like count.
+    while (remaining > 0) {
+      const target = this.enemy(stats.team);
+      if (!target?.building) break;
+      const shots = target.building.shielded ? 1 : Math.min(remaining, target.building.health);
+      actions.push(this.hit(stats, viewer, target, shots, false, shots));
+      remaining -= shots;
     }
     return actions;
   }
-
-  getState(): GameState {
-    const users = [...this.users.values()].map((user) => ({ ...user }));
-    return {
-      version: this.version,
-      gridSize: this.gridSize,
-      grid: this.grid.map((row) =>
-        row.map((cell) => cell.building
-          ? { ...cell, building: { ...cell.building } }
-          : { ...cell }),
-      ),
-      users,
-      leaderboard: {
-        builders: this.createLeaderboard(users, (user) => user.built + user.upgraded),
-        destroyers: this.createLeaderboard(users, (user) => user.destroyed),
-      },
-      scores: this.calculateScores(),
-      updatedAt: this.updatedAt,
-    };
-  }
-
-  reset(): GameState {
-    for (const row of this.grid) {
-      for (const cell of row) delete cell.building;
+  handleGift(viewer: ViewerIdentity, gift: IncomingGift): GameAction[] {
+    const actions = this.handleJoin(viewer);
+    if (this.round.status === 'finished') return [];
+    const stats = this.users.get(viewer.userId);
+    const kind = resolveGiftKind(gift.giftName);
+    if (!stats) return actions;
+    if (!kind) return [...actions, this.action('IGNORED', stats.team, viewer, 'Quà này chưa có kỹ năng')];
+    const own = this.owned(viewer.userId);
+    if (!own?.building) return [...actions, this.action('IGNORED', stats.team, viewer, 'Đã bị loại · Hẹn bạn vòng sau')];
+    if (!Number.isSafeInteger(gift.repeatCount) || gift.repeatCount < 1) return actions;
+    for (let i = 0; i < Math.min(100, gift.repeatCount); i++) {
+      if (kind === 'shield') {
+        if (own.building.shielded) continue;
+        own.building.shielded = true;
+        stats.shielded++;
+        this.touch();
+        actions.push(this.action('SHIELD', stats.team, viewer, 'Hoa hồng · Chặn 1 phát bắn', own));
+      } else if (kind === 'upgrade') {
+        if (own.building.level === 2) continue;
+        Object.assign(own.building, { level: 2, health: 200, maxHealth: 200 });
+        stats.upgraded++;
+        this.touch();
+        actions.push(this.action('UPGRADE', stats.team, viewer, 'Heo may mắn · Cấp 2 · 200 HP', own));
+      } else {
+        const targets = kind === 'eliminate20' ? 20 : kind === 'eliminate10' ? 10 : 1;
+        for (let n = 0; n < targets; n++) {
+          const target = this.enemy(stats.team);
+          if (!target?.building) break;
+          actions.push(this.hit(stats, viewer, target, 10, kind !== 'attack', 1));
+        }
+      }
     }
+    return actions;
+  }
+  private hit(stats: UserStats, viewer: ViewerIdentity, cell: GridCell, damage: number, instant: boolean, shotCount: number): GameAction {
+    const target = cell.building!;
+    const source = this.owned(viewer.userId);
+    const action = this.action('DAMAGE', stats.team, viewer, '', cell);
+    Object.assign(action, { sourceX: source?.x, sourceY: source?.y, targetTeam: target.team, targetUserId: target.ownerId, shotCount });
+    stats.shots += shotCount;
+    if (target.shielded && !instant) {
+      target.shielded = false;
+      Object.assign(action, { type: 'BLOCKED', message: 'Khiên đã chặn một phát bắn', damage: 0, remainingHealth: target.health });
+    } else {
+      const dealt = instant ? target.health : Math.min(damage, target.health);
+      target.health -= dealt;
+      stats.damageDealt += dealt;
+      Object.assign(action, { damage: dealt, remainingHealth: target.health, message: '-' + dealt + ' HP · ' + target.ownerName });
+      if (!target.health) {
+        stats.destroyed++;
+        const victim = this.users.get(target.ownerId);
+        if (victim) victim.eliminatedAt = this.now();
+        delete cell.building;
+        action.type = instant ? 'MEGA_DESTROY' : 'DESTROY';
+        action.message = 'Hạ gục ' + target.ownerName;
+      }
+    }
+    this.touch();
+    return action;
+  }
+  reset(durationMs = this.durationMs, keepParticipants = false): GameState {
+    if (!Number.isFinite(durationMs) || durationMs <= 0) throw new Error('Invalid round duration');
+    const viewers: ViewerIdentity[] = keepParticipants ? [...this.users.values()].map(u => ({ userId: u.userId, uniqueId: u.uniqueId, nickname: u.nickname, ...(u.avatarUrl ? { avatarUrl: u.avatarUrl } : {}) })) : [];
+    this.durationMs = durationMs;
+    for (const row of this.grid) for (const cell of row) delete cell.building;
     this.users.clear();
+    this.round = this.newRound();
+    for (const viewer of viewers) this.handleJoin(viewer);
     this.touch();
     return this.getState();
   }
-
-  private applyGift(kind: GiftKind, stats: UserStats, viewer: ViewerIdentity): GameAction {
-    switch (kind) {
-      case 'join':
-        return this.joinRandomTeam(viewer);
-      case 'build':
-        return this.build(stats, viewer);
-      case 'shield':
-        return this.shield(stats, viewer);
-      case 'attack':
-        return this.attack(stats, viewer);
-      case 'megaAttack':
-        return this.megaAttack(stats, viewer);
-    }
-  }
-
-  private joinRandomTeam(viewer: ViewerIdentity): GameAction {
-    const existing = this.users.get(viewer.userId);
-    if (existing) {
-      return this.createAction(
-        'JOIN',
-        existing.team,
-        viewer,
-        `${viewer.nickname} đã ở phe ${existing.team === 'blue' ? 'Xanh' : 'Đỏ'}`,
-      );
-    }
-
-    const team: Team = this.random() < 0.5 ? 'blue' : 'red';
-    const stats: UserStats = {
-      ...viewer,
-      team,
-      built: 0,
-      upgraded: 0,
-      shielded: 0,
-      destroyed: 0,
+  getState(): GameState {
+    this.finishIfExpired();
+    const users = [...this.users.values()].map(u => ({ ...u }));
+    const leaders = (field: 'built' | 'destroyed') => users.filter(u => u[field] > 0).sort((a,b) => b[field] - a[field]).slice(0,3).map(u => ({ ...u, score: u[field] }));
+    return {
+      version: this.version, gridSize: this.gridSize,
+      grid: this.grid.map(row => row.map(c => c.building ? { ...c, building: { ...c.building } } : { ...c })),
+      users, leaderboard: { builders: leaders('built'), destroyers: leaders('destroyed') },
+      scores: this.scores(), updatedAt: this.updatedAt, serverTime: this.now(),
+      round: { ...this.round, ranking: this.round.ranking.map(r => ({ ...r })) },
     };
-    this.users.set(viewer.userId, stats);
-    this.touch();
-    return this.createAction(
-      'JOIN',
-      team,
-      viewer,
-      `${viewer.nickname} được chọn ngẫu nhiên vào phe ${team === 'blue' ? 'Xanh' : 'Đỏ'}`,
-    );
   }
-
-  private build(stats: UserStats, viewer: ViewerIdentity): GameAction {
-    const cell = this.pickCell((candidate) => candidate.territory === stats.team && !candidate.building);
-    if (!cell) {
-      return this.createAction('IGNORED', stats.team, viewer, 'Lãnh thổ đã kín, không còn ô để xây');
-    }
-
-    const building: Building = {
-      id: randomUUID(),
-      ownerId: viewer.userId,
-      ownerName: viewer.nickname,
-      team: stats.team,
-      level: 1,
-      shielded: false,
-      health: 10,
-      maxHealth: 10,
-    };
-    cell.building = building;
-    stats.built += 1;
-    this.touch();
-    return this.createAction('BUILD', stats.team, viewer, '+1 Nhà (10 HP)', cell);
+  private rank(): RankingEntry[] {
+    return [...this.users.values()].map(user => {
+      const building = this.owned(user.userId)?.building;
+      return { ...user, rank: 0, alive: Boolean(building), health: building?.health ?? 0, level: building?.level ?? (user.upgraded ? 2 : 1), score: user.destroyed, survivalMs: Math.max(0, (user.eliminatedAt ?? this.round.endsAt) - user.joinedAt) };
+    }).sort((a,b) => Number(b.alive)-Number(a.alive) || b.destroyed-a.destroyed || b.health-a.health || b.survivalMs-a.survivalMs || a.userId.localeCompare(b.userId))
+      .map((user, i) => ({ ...user, rank: i+1 }));
   }
-
-  private shield(stats: UserStats, viewer: ViewerIdentity): GameAction {
-    const cell = this.pickCell((candidate) =>
-      candidate.building?.ownerId === viewer.userId && !candidate.building.shielded,
-    );
-    if (!cell?.building) {
-      return this.createAction('IGNORED', stats.team, viewer, 'Bạn chưa có nhà cần tạo khiên');
-    }
-
-    cell.building.shielded = true;
-    stats.shielded += 1;
-    this.touch();
-    return this.createAction('SHIELD', stats.team, viewer, '+1 Khiên bảo vệ', cell);
+  private scores() { return this.grid.flat().reduce((s,c) => { if(c.building) s[c.building.team]++; return s; }, { blue: 0, red: 0 }); }
+  private owned(id: string) { return this.grid.flat().find(c => c.building?.ownerId === id); }
+  private enemy(team: Team) { return this.pick(c => Boolean(c.building && c.building.team !== team)); }
+  private pick(predicate: (c: GridCell) => boolean) {
+    const cells = this.grid.flat().filter(predicate);
+    return cells[Math.min(cells.length-1, Math.floor(this.random()*cells.length))];
   }
-
-  private attack(stats: UserStats, viewer: ViewerIdentity): GameAction {
-    const sourceCell = this.pickCell((candidate) => candidate.building?.ownerId === viewer.userId);
-    if (!sourceCell?.building) {
-      return this.createAction('IGNORED', stats.team, viewer, 'Bạn cần có nhà để khai hỏa');
-    }
-
-    const targetTeam: Team = stats.team === 'blue' ? 'red' : 'blue';
-    const cell = this.pickCell((candidate) => candidate.building?.team === targetTeam);
-    if (!cell?.building) {
-      return this.createAction('IGNORED', stats.team, viewer, 'Đối phương chưa có công trình để phá');
-    }
-
-    if (cell.building.shielded) {
-      cell.building.shielded = false;
-      this.touch();
-      return this.createAction(
-        'BLOCKED',
-        stats.team,
-        viewer,
-        'Đạn bị Khiên chặn',
-        cell,
-        targetTeam,
-        sourceCell,
-        0,
-        cell.building.health,
-      );
-    }
-
-    cell.building.health = Math.max(0, cell.building.health - 1);
-    const remainingHealth = cell.building.health;
-    if (remainingHealth === 0) {
-      delete cell.building;
-      stats.destroyed += 1;
-    }
-    this.touch();
-    return this.createAction(
-      remainingHealth === 0 ? 'DESTROY' : 'DAMAGE',
-      stats.team,
-      viewer,
-      remainingHealth === 0 ? 'Bắn sập một nhà đối thủ' : `Bắn trúng nhà, còn ${remainingHealth}/10 HP`,
-      cell,
-      targetTeam,
-      sourceCell,
-      1,
-      remainingHealth,
-    );
+  private action(type: GameAction['type'], team: Team, user: ViewerIdentity, message: string, cell?: GridCell): GameAction {
+    return { id: randomUUID(), type, team, user: { ...user }, message, timestamp: this.now(), ...(cell ? { x: cell.x, y: cell.y } : {}), ...(cell?.building ? { targetUserId: cell.building.ownerId } : {}) };
   }
-
-  private megaAttack(stats: UserStats, viewer: ViewerIdentity): GameAction {
-    const targetTeam: Team = stats.team === 'blue' ? 'red' : 'blue';
-    const cell = this.pickCell((candidate) => candidate.building?.team === targetTeam);
-    if (!cell?.building) {
-      return this.createAction('IGNORED', stats.team, viewer, 'Đối phương chưa có công trình để phá');
-    }
-
-    delete cell.building;
-    stats.destroyed += 1;
-    this.touch();
-    return this.createAction(
-      'MEGA_DESTROY',
-      stats.team,
-      viewer,
-      'Hủy diệt hoàn toàn một nhà, xuyên mọi Khiên',
-      cell,
-      targetTeam,
-      undefined,
-      10,
-      0,
-    );
-  }
-
-  private pickCell(predicate: (cell: GridCell) => boolean): GridCell | undefined {
-    const candidates = this.grid.flat().filter(predicate);
-    if (candidates.length === 0) return undefined;
-    const index = Math.min(candidates.length - 1, Math.floor(this.random() * candidates.length));
-    return candidates[index];
-  }
-
-  private createLeaderboard(
-    users: UserStats[],
-    scoreFor: (user: UserStats) => number,
-  ): LeaderboardEntry[] {
-    return users
-      .map((user): LeaderboardEntry => {
-        const entry: LeaderboardEntry = {
-          userId: user.userId,
-          nickname: user.nickname,
-          team: user.team,
-          score: scoreFor(user),
-        };
-        if (user.avatarUrl) entry.avatarUrl = user.avatarUrl;
-        return entry;
-      })
-      .filter((entry) => entry.score > 0)
-      .sort((left, right) => right.score - left.score || left.nickname.localeCompare(right.nickname))
-      .slice(0, 3);
-  }
-
-  private calculateScores(): { blue: number; red: number } {
-    return this.grid.flat().reduce(
-      (scores, cell) => {
-        if (cell.building) scores[cell.building.team] += 1;
-        return scores;
-      },
-      { blue: 0, red: 0 },
-    );
-  }
-
-  private createAction(
-    type: GameAction['type'],
-    team: Team,
-    user: ViewerIdentity,
-    message: string,
-    cell?: GridCell,
-    targetTeam?: Team,
-    sourceCell?: GridCell,
-    damage?: number,
-    remainingHealth?: number,
-  ): GameAction {
-    const action: GameAction = {
-      id: randomUUID(),
-      type,
-      team,
-      user: { ...user },
-      message,
-      timestamp: Date.now(),
-    };
-    if (cell) {
-      action.x = cell.x;
-      action.y = cell.y;
-    }
-    if (sourceCell) {
-      action.sourceX = sourceCell.x;
-      action.sourceY = sourceCell.y;
-    }
-    if (targetTeam) action.targetTeam = targetTeam;
-    if (damage !== undefined) action.damage = damage;
-    if (remainingHealth !== undefined) action.remainingHealth = remainingHealth;
-    return action;
-  }
-
-  private touch(): void {
-    this.version += 1;
-    this.updatedAt = Date.now();
-  }
-}
-
-export function resolveGiftKind(giftName: string, diamondCount?: number): GiftKind | undefined {
-  const alias = GIFT_ALIASES[giftName.trim().toLocaleLowerCase('vi-VN')];
-  if (alias) return alias;
-  if (diamondCount === undefined || !Number.isFinite(diamondCount)) return undefined;
-  if (diamondCount > 100) return 'megaAttack';
-  if (diamondCount === 20) return 'shield';
-  if (diamondCount === 10) return 'build';
-  if (diamondCount === 5) return 'attack';
-  if (diamondCount === 1) return 'join';
-  return undefined;
+  private touch() { this.version++; this.updatedAt = this.now(); }
 }

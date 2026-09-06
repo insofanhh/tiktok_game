@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { createDemoState } from '@/lib/demo-state';
 import type { GameAction, GameState, RuntimeSourceSettings, SourceStatus } from '@/lib/game-types';
@@ -32,6 +32,7 @@ const GameSocketContext = createContext<GameSocketContextValue | null>(null);
 const SERVER_URL = process.env.NEXT_PUBLIC_GAME_SERVER_URL ?? 'http://127.0.0.1:4100';
 
 export function GameSocketProvider({ children }: { children: React.ReactNode }) {
+  const roundId = useRef('waiting');
   const [state, setState] = useState<GameState>(() => createDemoState());
   const [lastAction, setLastAction] = useState<GameAction | null>(null);
   const [recentActions, setRecentActions] = useState<GameAction[]>([]);
@@ -67,7 +68,13 @@ export function GameSocketProvider({ children }: { children: React.ReactNode }) 
     });
     socket.on('disconnect', () => setConnection('offline'));
     socket.on('connect_error', () => setConnection('offline'));
-    socket.on('game:state', setState);
+    socket.on('game:state', (next) => {
+      if (roundId.current !== next.round.id) {
+        setLastAction(null); setRecentActions([]);
+        roundId.current = next.round.id;
+      }
+      setState(next);
+    });
     socket.on('source:status', setSource);
     socket.on('settings:runtime', (settings) => {
       setRuntimeSettings(settings);
@@ -75,7 +82,7 @@ export function GameSocketProvider({ children }: { children: React.ReactNode }) 
     });
     socket.on('game:action', (action) => {
       setLastAction(action);
-      setRecentActions((current) => [action, ...current].slice(0, 5));
+      setRecentActions((current) => [action, ...current].slice(0, 48));
     });
 
     return () => {

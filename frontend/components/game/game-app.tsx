@@ -1,307 +1,164 @@
 'use client';
-
-import { Radio, ShieldCheck, Sparkles, Swords, Users, Wifi, WifiOff } from 'lucide-react';
-import { gsap } from 'gsap';
-import { useEffect, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import type { GameAction, Team, UserStats } from '@/lib/game-types';
+import { Clock3, Crown, Heart, Radio, Shield, Swords, Trophy, Users, Volume2, VolumeX, Zap } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import type { GameState, RankingEntry } from '@/lib/game-types';
+import { Avatar } from './avatar';
 import { GameCanvas } from './game-canvas';
 import { SettingsPanel } from './settings-panel';
 import { useGameSocket } from './socket-provider';
+import { useGameAudio } from './use-game-audio';
+
+const gifts = [
+  { icon: '♥', name: 'Thả tim', detail: '1 tim · 1 phát bắn', gift: '' },
+  { icon: '🌹', name: 'Hoa hồng', detail: 'Khiên chặn 1 phát', gift: 'Rose' },
+  { icon: '🌷', name: 'Rosa', detail: 'Bắn −10 HP', gift: 'Rosa' },
+  { icon: '🐷', name: 'Heo may mắn', detail: 'Cấp 2 · 200 HP', gift: 'Lucky Pig' },
+  { icon: '🕊️', name: 'Hạc giấy', detail: 'Loại 1 đối thủ', gift: 'Paper Crane' },
+  { icon: '💸', name: 'Súng bắn tiền', detail: 'Loại 10 đối thủ', gift: 'Money Gun' },
+  { icon: '🌌', name: 'Thiên hà', detail: 'Loại 20 đối thủ', gift: 'Galaxy' },
+];
 
 export function GameApp() {
-  const { state, lastAction, recentActions, connection, source, runtimeSettings, serverUrl } = useGameSocket();
-  const recentlyJoinedUserId = lastAction?.type === 'JOIN' ? lastAction.user.userId : undefined;
-  const blueTeam = getTeamStandings(state.users, 'blue', recentlyJoinedUserId);
-  const redTeam = getTeamStandings(state.users, 'red', recentlyJoinedUserId);
-
-  return (
-    <main className="game-shell min-h-screen overflow-hidden bg-[#05080d] text-white">
-      <div className="arena-glow arena-glow-blue" aria-hidden="true" />
-      <div className="arena-glow arena-glow-red" aria-hidden="true" />
-
-      <header className="game-header">
-        <div className="flex min-w-0 items-center gap-4">
-          <span className="live-indicator"><span /> LIVE</span>
-          <div className="min-w-0">
-            <p className="eyebrow truncate">TikTok Kingdom Clash</p>
-            <p className="truncate text-sm text-slate-400">Tặng quà 1 xu để chọn phe ngẫu nhiên</p>
-          </div>
-        </div>
-
-        <div className="versus-lockup" aria-label="Phe Xanh đấu với Phe Đỏ">
-          <span className="score score-blue">{state.scores.blue}</span>
-          <span className="text-cyan-300">XANH</span>
-          <strong>VS</strong>
-          <span className="text-rose-400">ĐỎ</span>
-          <span className="score score-red">{state.scores.red}</span>
-        </div>
-
-        <div className="flex items-center justify-end gap-4 text-right">
-          <div className="hidden items-center gap-2 text-xs font-bold text-slate-400 xl:flex">
-            <Users className="h-4 w-4" /> {state.users.length} chiến binh
-          </div>
-          <div>
-            <p className="eyebrow">Vòng sinh tồn</p>
-            <RoundClock
-              durationMinutes={runtimeSettings.roundDurationMinutes}
-              startedAt={runtimeSettings.roundStartedAt}
-            />
-          </div>
-          <SettingsPanel serverUrl={serverUrl} connection={connection} source={source} />
-          <Radio className="h-6 w-6 text-rose-400" aria-hidden="true" />
-        </div>
-      </header>
-
-      <section className="arena-layout">
-        <TeamRoster
-          title="PHE XANH"
-          subtitle={`${blueTeam.length} chiến binh`}
-          icon={<Swords />}
-          rows={blueTeam}
-          tone="blue"
-          highlightedUserId={recentlyJoinedUserId}
-        />
-
-        <div className="canvas-frame">
-          <GameCanvas state={state} lastAction={lastAction} />
-          {lastAction && <FloatingAction key={lastAction.id} action={lastAction} />}
-
-          <div className="pointer-events-none absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-2 border border-cyan-300/30 bg-cyan-950/80 px-4 py-2 text-xs font-bold tracking-[0.12em] text-cyan-100 backdrop-blur">
-            <ShieldCheck className="h-4 w-4" />
-            {countShields(state)} KHIÊN ĐANG HOẠT ĐỘNG
-          </div>
-
-          {recentActions.length > 0 && (
-            <div className="event-ribbon" aria-label="Sự kiện gần nhất">
-              {recentActions.slice(0, 3).map((action) => (
-                <span key={action.id}>{action.user.nickname}: {action.message}</span>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <TeamRoster
-          title="PHE ĐỎ"
-          subtitle={`${redTeam.length} chiến binh`}
-          icon={<Swords />}
-          rows={redTeam}
-          tone="red"
-          highlightedUserId={recentlyJoinedUserId}
-        />
-      </section>
-
-      <footer className="game-footer">
-        <span>🌹 1 XU: CHỌN PHE</span>
-        <span>💥 5 XU: BẮN −1 HP</span>
-        <span>🏠 10 XU: XÂY NHÀ</span>
-        <span>🛡️ 20 XU: TẠO KHIÊN</span>
-        <span>⚡ &gt;100 XU: HỦY DIỆT</span>
-        <ConnectionBadge connection={connection} sourceLabel={source.label} />
-      </footer>
-
-      <DebugControls serverUrl={serverUrl} />
-    </main>
-  );
-}
-
-function RoundClock({ durationMinutes, startedAt }: { durationMinutes: number; startedAt: number }) {
-  const safeDurationMinutes = Number.isFinite(durationMinutes) ? durationMinutes : 10;
-  const safeStartedAt = Number.isFinite(startedAt) ? startedAt : Date.now();
-  const durationSeconds = Math.max(60, safeDurationMinutes * 60);
-  const getRemainingSeconds = () => {
-    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - safeStartedAt) / 1000));
-    const elapsedInRound = elapsedSeconds % durationSeconds;
-    return elapsedInRound === 0 ? durationSeconds : durationSeconds - elapsedInRound;
-  };
-  const [seconds, setSeconds] = useState(getRemainingSeconds);
-
-  useEffect(() => {
-    const updateClock = () => setSeconds(getRemainingSeconds());
-    updateClock();
-    const timer = window.setInterval(() => {
-      updateClock();
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [durationSeconds, safeStartedAt]);
-
-  const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
-  const remainder = (seconds % 60).toString().padStart(2, '0');
-  return (
-    <p
-      className="font-mono text-2xl font-black tracking-widest text-amber-300"
-      aria-label={`Còn ${minutes} phút ${remainder} giây`}
-    >
-      {minutes}:{remainder}
-    </p>
-  );
-}
-
-function ConnectionBadge({
-  connection,
-  sourceLabel,
-}: {
-  connection: 'connecting' | 'online' | 'offline';
-  sourceLabel: string;
-}) {
-  const online = connection === 'online';
-  return (
-    <span className={online ? 'connection-online' : 'connection-offline'} title={sourceLabel}>
-      {online ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
-      {online ? sourceLabel : 'CHẾ ĐỘ XEM TRƯỚC'}
-    </span>
-  );
-}
-
-function FloatingAction({ action }: { action: GameAction }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!ref.current) return;
-    const timeline = gsap.timeline();
-    timeline
-      .fromTo(ref.current, { opacity: 0, y: 30, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.32, ease: 'back.out(1.7)' })
-      .to(ref.current, { opacity: 0, y: -42, duration: 0.55, ease: 'power2.in' }, '+=1.2');
-    return () => {
-      timeline.kill();
-    };
-  }, []);
-
-  return (
-    <div ref={ref} className="pointer-events-none absolute inset-x-0 top-5 flex justify-center">
-      <div className={`action-toast action-${action.team}`}>
-        {action.user.avatarUrl
-          ? <img className="avatar-chip object-cover" src={action.user.avatarUrl} alt="" />
-          : <span className="avatar-chip">{initials(action.user.nickname)}</span>}
-        <span><strong>{action.user.nickname}</strong> {action.message}</span>
-        <Sparkles className="h-4 w-4 text-amber-300" />
-      </div>
-    </div>
-  );
-}
-
-interface TeamRosterProps {
-  title: string;
-  subtitle: string;
-  icon: React.ReactNode;
-  rows: UserStats[];
-  tone: Team;
-  highlightedUserId?: string;
-}
-
-function TeamRoster({ title, subtitle, icon, rows, tone, highlightedUserId }: TeamRosterProps) {
-  return (
-    <aside className={`leaderboard leaderboard-${tone}`}>
-      <div className="leaderboard-title">
-        <span>{icon}</span>
-        <div>
-          <h2>{title}</h2>
-          <p>{subtitle}</p>
-        </div>
-      </div>
-
-      {rows.length === 0 ? (
-        <div className="leader-empty">
-          Đang chờ chiến binh phe {tone === 'blue' ? 'Xanh' : 'Đỏ'} đầu tiên...
-        </div>
-      ) : (
-        <ol className="team-roster-list space-y-3">
-          {rows.map((row, index) => (
-            <li
-              key={row.userId}
-              className={`leader-row${row.userId === highlightedUserId ? ' leader-row-new' : ''}`}
-            >
-              <span className="rank">{String(index + 1).padStart(2, '0')}</span>
-              {row.avatarUrl
-                ? <img className="user-dot object-cover" src={row.avatarUrl} alt="" />
-                : <span className="user-dot">{initials(row.nickname)}</span>}
-              <span className="min-w-0 flex-1">
-                <strong className="block truncate">{row.nickname}</strong>
-                <small>
-                  {row.userId === highlightedUserId && <span className="new-user-label">MỚI · </span>}
-                  🏠 {row.built} · 💥 {row.destroyed}
-                </small>
-              </span>
-              <b>{row.built + row.destroyed}</b>
-            </li>
-          ))}
-        </ol>
-      )}
-    </aside>
-  );
-}
-
-function getTeamStandings(users: UserStats[], team: Team, highlightedUserId?: string): UserStats[] {
-  return users
-    .filter((user) => user.team === team)
-    .sort((left, right) => {
-      if (left.userId === highlightedUserId && right.userId !== highlightedUserId) return -1;
-      if (right.userId === highlightedUserId && left.userId !== highlightedUserId) return 1;
-      const contributionDifference = (right.built + right.destroyed) - (left.built + left.destroyed);
-      if (contributionDifference !== 0) return contributionDifference;
-      if (right.built !== left.built) return right.built - left.built;
-      return left.nickname.localeCompare(right.nickname, 'vi');
-    });
-}
-
-function DebugControls({ serverUrl }: { serverUrl: string }) {
-  const [visible, setVisible] = useState(false);
+  const { state, recentActions, connection, source, serverUrl } = useGameSocket();
+  const [tab, setTab] = useState<'arena'|'ranking'>('arena');
+  const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
-
-  useEffect(() => {
-    setVisible(new URLSearchParams(window.location.search).get('debug') === '1');
-  }, []);
-
-  if (!visible) return null;
-
-  const sendGift = async (team: Team, giftName: string, diamondCount: number) => {
-    setPending(true);
-    const viewer = team === 'blue'
-      ? { userId: 'operator-blue', uniqueId: 'operator_blue', nickname: 'Test Xanh' }
-      : { userId: 'operator-red', uniqueId: 'operator_red', nickname: 'Test Đỏ' };
-    try {
-      await fetch(`${serverUrl}/api/mock/gift`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ viewer, giftName: 'Rose', diamondCount: 1, repeatCount: 1 }),
-      });
-      await fetch(`${serverUrl}/api/mock/gift`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ viewer, giftName, diamondCount, repeatCount: 1 }),
-      });
-    } finally {
-      setPending(false);
-    }
+  const finished = state.round.status === 'finished';
+  const audio = useGameAudio(recentActions, finished);
+  const survivors = state.scores.blue + state.scores.red;
+  const latest = recentActions.find(a => a.type !== 'IGNORED');
+  const ranking = useMemo(() => liveRanking(state), [state]);
+  const connected = connection === 'online';
+  useEffect(() => { setTab('arena'); }, [state.round.id]);
+  const restart = async () => {
+    setPending(true); setError('');
+    try { await post(serverUrl + '/api/round/restart', {}); }
+    catch(e) { setError(e instanceof Error ? e.message : 'Không thể bắt đầu vòng mới'); }
+    finally { setPending(false); }
   };
 
-  return (
-    <aside className="debug-controls" aria-label="Bảng kiểm thử quà tặng">
-      <p>MOCK CONTROL</p>
-      <div className="grid grid-cols-2 gap-2">
-        <Button disabled={pending} onClick={() => void sendGift('blue', 'Rosa', 10)} className="bg-cyan-500 text-slate-950">Người A + Nhà</Button>
-        <Button disabled={pending} onClick={() => void sendGift('red', 'Rosa', 10)} className="bg-rose-500 text-white">Người B + Nhà</Button>
-        <Button disabled={pending} variant="outline" onClick={() => void sendGift('blue', '5 Coin Gift', 5)}>Người A bắn</Button>
-        <Button disabled={pending} variant="outline" onClick={() => void sendGift('red', '20 Coin Gift', 20)}>Người B tạo khiên</Button>
-        <Button disabled={pending} variant="destructive" onClick={() => void sendGift('blue', 'Big Gift', 101)}>Người A hủy diệt</Button>
-        <Button disabled={pending} variant="destructive" onClick={() => void sendGift('red', 'Big Gift', 101)}>Người B hủy diệt</Button>
+  return <main className="survival-shell">
+    <header className="topbar">
+      <a className="brand" href="/" aria-label="TikTok Kingdom Clash"><span className="brand-mark"><Swords size={23}/></span><span>KINGDOM <b>CLASH</b><small>ĐẤU TRƯỜNG SINH TỒN</small></span></a>
+      <div className="header-controls">
+        <button className={'icon-button ' + (audio.enabled ? 'sound-on' : '')} onClick={() => void audio.toggle()} aria-label={audio.enabled ? 'Tắt âm thanh' : 'Bật âm thanh'} aria-pressed={audio.enabled}>{audio.enabled ? <Volume2 size={19}/> : <VolumeX size={19}/>}</button>
+        <SettingsPanel serverUrl={serverUrl} connection={connection} source={source}/>
       </div>
-    </aside>
-  );
+    </header>
+
+    <div className="live-bar"><span className={'status-dot ' + (connected && source.connected ? 'connected' : '')}/><span>{!connected ? 'Đang kết nối lại máy chủ…' : source.mode === 'mock' ? 'GIẢ LẬP' : 'TIKTOK LIVE'}</span><span className="live-description">{connected ? source.label : 'Dữ liệu tạm thời chưa cập nhật'}</span><span className="viewer-count"><Users size={14}/>{state.users.length}</span></div>
+    {audio.error && <p role="alert" className="error-banner">{audio.error}</p>}
+    <section className={'match-header ' + (finished ? 'match-finished' : '')}>
+      <div className="round-kicker"><span/><span>{finished ? 'VÒNG ĐẤU ĐÃ KẾT THÚC' : 'VÀO LIVE LÀ CÓ MẶT TRONG TRẬN'}</span><span/></div>
+      <div className="scoreboard">
+        <div className="team-score blue"><span>PHE XANH</span><strong>{state.scores.blue.toString().padStart(2,'0')}</strong><small>đang sống sót</small></div>
+        <div className="round-center"><span className="vs-pill">VS</span><RoundClock round={state.round} serverTime={state.serverTime}/><small><Clock3 size={12}/> CÒN LẠI</small></div>
+        <div className="team-score red"><span>PHE ĐỎ</span><strong>{state.scores.red.toString().padStart(2,'0')}</strong><small>đang sống sót</small></div>
+      </div>
+      <div className="balance-track" aria-label="Tỉ lệ người sống sót hai phe"><span style={{ width: (survivors ? state.scores.blue/survivors*100 : 50)+'%' }}/></div>
+    </section>
+
+    {finished ? <section className="results-panel">
+      <div className="result-crown"><Trophy size={34}/></div>
+      <p className="section-kicker">TỔNG KẾT VÒNG SINH TỒN</p>
+      <h1>{state.round.winner === 'draw' ? 'HAI PHE HÒA NHAU' : state.round.winner === 'blue' ? 'PHE XANH CHIẾN THẮNG' : 'PHE ĐỎ CHIẾN THẮNG'}</h1>
+      <p className="result-subtitle">{survivors} chiến binh sống sót · {state.users.length} người tham gia</p>
+      {state.round.ranking.length > 0 && <div className="podium">{state.round.ranking.slice(0,3).map((r,i) => <div className={'podium-place place-' + i} key={r.userId}><span className="podium-rank">{i === 0 ? <Crown size={23}/> : '#' + (i+1)}</span><Avatar name={r.nickname} url={r.avatarUrl}/><strong>{r.nickname}</strong><small>{r.destroyed} hạ gục · {r.health} HP</small></div>)}</div>}
+      <Ranking rows={state.round.ranking}/>
+      <AutoRestartCountdown restartAt={state.round.restartAt} serverTime={state.serverTime}/>
+      <p className="ranking-rule">Ưu tiên sống sót → hạ gục → HP → thời gian sống sót.</p>
+      <button className="primary-action" onClick={() => void restart()} disabled={pending || !connected}>{pending ? 'Đang bắt đầu…' : 'Bắt đầu vòng tiếp theo'}<Zap size={17}/></button>
+      {error && <p className="error-banner" role="alert">{error}</p>}
+    </section> : <>
+      <div className="arena-toolbar"><div className="arena-tabs" aria-label="Chọn nội dung"><button className={tab === 'arena' ? 'selected' : ''} onClick={() => setTab('arena')} aria-pressed={tab === 'arena'}><Swords size={16}/>Đấu trường</button><button className={tab === 'ranking' ? 'selected' : ''} onClick={() => setTab('ranking')} aria-pressed={tab === 'ranking'}><Trophy size={16}/>Bảng hạng</button></div><span className="alive-count"><span/>{survivors} sống sót</span></div>
+      <section className="arena-surface">
+        {tab === 'arena' ? <GameCanvas state={state} actions={recentActions}/> : <Ranking rows={ranking}/>}
+        <div className="battle-caption"><Heart size={15}/><span>Thả tim để khai hỏa. Bảo vệ avatar của bạn!</span></div>
+      </section>
+      <div className="activity-feed" aria-label="Diễn biến trận đấu">
+        <span className="activity-icon"><Zap size={19}/></span>
+        {latest ? <div key={latest.id} className="activity-message"><strong className={latest.team}>{latest.user.nickname}</strong><span>{latest.message}</span></div> : <div className="activity-message"><strong>Sẵn sàng vào trận</strong><span>Mỗi người xem có 1 avatar · 100 HP</span></div>}
+        <span className="activity-live">LIVE</span>
+      </div>
+    </>}
+
+    <section className="arsenal">
+      <div className="section-heading"><div><span className="section-kicker">TIẾP SỨC CHO CHIẾN BINH</span><h2>Kho kỹ năng</h2></div><Shield size={23}/></div>
+      <div className="gift-grid">{gifts.map((g,i) => <div className={'gift-card gift-' + i} key={g.name}><span className="gift-icon" aria-hidden="true">{g.icon}</span><div><strong>{g.name}</strong><small>{g.detail}</small></div></div>)}</div>
+      <p className="arsenal-note">Khiên không cộng dồn. Quà hạ gục xuyên khiên. Bị loại sẽ chờ vòng sau.</p>
+    </section>
+    {!audio.enabled && <button className="sound-prompt" onClick={() => void audio.toggle()}><Volume2 size={16}/>Bật âm thanh để cảm nhận trận đấu</button>}
+    <DebugControls serverUrl={serverUrl} state={state} enabled={source.mode === 'mock' && connected}/>
+    <footer className="survival-footer"><Radio size={13}/> KINGDOM CLASH <span>Vào Live · Chọn phe tự động · Sinh tồn</span><a href="/audio/CREDITS.txt" target="_blank" rel="noreferrer">Nguồn âm thanh</a></footer>
+  </main>;
 }
 
-function initials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(-2)
-    .map((part) => part[0]?.toLocaleUpperCase('vi-VN') ?? '')
-    .join('');
+function RoundClock({ round, serverTime }: { round: GameState['round']; serverTime: number }) {
+  const [remaining, setRemaining] = useState(0);
+  useEffect(() => {
+    const offset = serverTime ? serverTime - Date.now() : 0;
+    const update = () => setRemaining(round.status === 'finished' ? 0 : Math.max(0, Math.ceil((round.endsAt - Date.now() - offset)/1000)));
+    update(); const timer = setInterval(update, 250);
+    return () => clearInterval(timer);
+  }, [round.endsAt, round.status, serverTime]);
+  return <strong className={'round-time ' + (remaining <= 30 ? 'urgent' : '')}>{String(Math.floor(remaining/60)).padStart(2,'0')}<span>:</span>{String(remaining%60).padStart(2,'0')}</strong>;
 }
 
-function countShields(state: ReturnType<typeof useGameSocket>['state']): number {
-  return state.grid.reduce(
-    (total, row) => total + row.filter((cell) => cell.building?.shielded).length,
-    0,
-  );
+function Ranking({ rows }: { rows: RankingEntry[] }) {
+  return <div className="ranking-list" aria-label="Bảng xếp hạng"><div className="ranking-head"><span>CHIẾN BINH</span><span>HẠ GỤC</span><span>HP</span></div>
+    {rows.length ? rows.map(row => <div key={row.userId} className="ranking-row"><span className="ranking-person"><b className={row.rank <= 3 ? 'top-rank' : ''}>{row.rank}</b><Avatar name={row.nickname} url={row.avatarUrl}/><span><strong>{row.nickname}</strong><small className={row.team}>{row.alive ? 'Sống sót' : 'Đã bị loại'} · Phe {row.team === 'blue' ? 'Xanh' : 'Đỏ'}</small></span></span><b>{row.destroyed}</b><span>{row.health}</span></div>) : <p className="empty-ranking">Chưa có người tham gia vòng này.</p>}
+  </div>;
+}
+function liveRanking(state: GameState): RankingEntry[] {
+  const buildings = new Map(state.grid.flatMap(r => r.flatMap(c => c.building ? [[c.building.ownerId,c.building] as const] : [])));
+  return state.users.map(u => ({ ...u, rank: 0, score: u.destroyed, alive: buildings.has(u.userId), health: buildings.get(u.userId)?.health ?? 0, level: buildings.get(u.userId)?.level ?? 1, survivalMs: Math.max(0,(u.eliminatedAt ?? state.serverTime)-u.joinedAt) }))
+    .sort((a,b) => Number(b.alive)-Number(a.alive) || b.destroyed-a.destroyed || b.health-a.health || b.survivalMs-a.survivalMs || a.userId.localeCompare(b.userId))
+    .map((r,i) => ({ ...r, rank: i+1 }));
+}
+async function post(url: string, data: unknown) {
+  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  const payload = await response.json() as { error?: unknown };
+  if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'Thao tác chưa thành công');
+  return payload;
+}
+function DebugControls({ serverUrl, state, enabled }: { serverUrl: string; state: GameState; enabled: boolean }) {
+  const [visible, setVisible] = useState(false);
+  const [selected, setSelected] = useState('');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => setVisible(new URLSearchParams(window.location.search).get('debug') === '1'), []);
+  if (!visible) return null;
+  const send = async (kind: string, giftName?: string) => {
+    setPending(true); setError('');
+    try {
+      const viewer = state.users.find(u => u.userId === selected) ?? state.users[0];
+      if (kind === 'join') {
+        const id = 'test-' + Date.now();
+        await post(serverUrl + '/api/mock/join', { viewer: { userId: id, uniqueId: id, nickname: 'Khách ' + (state.users.length+1) } });
+        setSelected(id);
+      } else if (kind === 'finish') await post(serverUrl + '/api/mock/finish', {});
+      else {
+        if (!viewer) throw new Error('Thêm người xem trước khi thử kỹ năng');
+        await post(serverUrl + '/api/mock/' + kind, kind === 'like' ? { viewer, count: 1 } : { viewer, giftName, repeatCount: 1 });
+      }
+    } catch(e) { setError(e instanceof Error ? e.message : 'Lỗi kết nối'); }
+    finally { setPending(false); }
+  };
+  return <details className="mock-panel"><summary>Bảng thử nghiệm sự kiện</summary><label>Người thực hiện<select value={selected || state.users[0]?.userId || ''} onChange={e => setSelected(e.target.value)}>{state.users.map(u => <option value={u.userId} key={u.userId}>{u.nickname} · {u.team === 'blue' ? 'Xanh' : 'Đỏ'}</option>)}</select></label><div className="mock-buttons"><button disabled={pending || !enabled || state.round.status === 'finished'} onClick={() => void send('join')}>+ Người vào Live</button>{gifts.map(g => <button disabled={pending || !enabled || state.round.status === 'finished'} key={g.name} onClick={() => void send(g.gift ? 'gift' : 'like',g.gift)}>{g.icon} {g.name}</button>)}<button disabled={pending || !enabled || state.round.status === 'finished'} onClick={() => void send('finish')}>Kết thúc vòng</button></div>{error && <p role="alert">{error}</p>}</details>;
+}
+
+function AutoRestartCountdown({ restartAt, serverTime }: { restartAt: number | null; serverTime: number }) {
+  const [seconds, setSeconds] = useState(10);
+  useEffect(() => {
+    if (!restartAt) return;
+    const offset = serverTime - Date.now();
+    const update = () => setSeconds(Math.max(0, Math.ceil((restartAt - Date.now() - offset) / 1000)));
+    update();
+    const timer = setInterval(update, 200);
+    return () => clearInterval(timer);
+  }, [restartAt, serverTime]);
+  if (!restartAt) return null;
+  return <p className="auto-restart-countdown" role="timer"><Clock3 size={16}/>
+    {seconds > 0 ? <>Vòng tiếp theo bắt đầu sau <strong>{seconds}s</strong></> : 'Đang bắt đầu vòng mới…'}
+  </p>;
 }
