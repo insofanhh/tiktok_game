@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { EulerStreamSource } from './euler-stream.js';
 import { GameEngine } from '../game/game-engine.js';
 function setup() {
-  const sink={onJoin:vi.fn(),onLike:vi.fn(),onGift:vi.fn(),onChat:vi.fn(),onStatus:vi.fn()};
+  const sink={onActivity:vi.fn(),onJoin:vi.fn(),onLike:vi.fn(),onGift:vi.fn(),onChat:vi.fn(),onStatus:vi.fn()};
   const source=new EulerStreamSource('test',sink,'unused');
   // Exercise the event dispatcher without opening a real socket or spending gifts.
   const dispatch=(message: {type:string;data:unknown}) => (source as unknown as {handleMessage:(m:unknown)=>void}).handleMessage(message);
@@ -59,5 +59,25 @@ describe('Rose streaks into shield points', () => {
     expect(building()).toMatchObject({ health:100, shieldHealth:10 });
     dispatch({ type:'WebcastGiftMessage', data:{ ...rose, repeatCount:10, repeatEnd:1, event:{ msgId:'next-completed-10' } } });
     expect(building()).toMatchObject({ health:100, shieldHealth:20 });
+  });
+});
+
+
+describe('Euler viewer activity', () => {
+  it('renews presence for in-progress gifts without granting the gift early', () => {
+    const { sink, dispatch } = setup();
+    const message = { type: 'WebcastGiftMessage', data: { user, repeatCount: 10, repeatEnd: 0, giftDetails: { giftType: 1, giftName: 'Rose' }, event: { msgId: 'streak-progress' } } };
+    dispatch(message);
+    dispatch(message);
+    expect(sink.onActivity).toHaveBeenCalledExactlyOnceWith('42');
+    expect(sink.onGift).not.toHaveBeenCalled();
+  });
+  it('renews identified social activity but ignores room totals and unknown member actions', () => {
+    const { sink, dispatch } = setup();
+    dispatch({ type: 'WebcastSocialMessage', data: { user } });
+    dispatch({ type: 'WebcastRoomUserSeqMessage', data: { user, total: 100 } });
+    dispatch({ type: 'WebcastMemberMessage', data: { user, actionId: 3 } });
+    dispatch({ type: 'WebcastSocialMessage', data: {} });
+    expect(sink.onActivity).toHaveBeenCalledExactlyOnceWith('42');
   });
 });

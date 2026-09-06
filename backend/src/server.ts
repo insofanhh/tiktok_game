@@ -11,6 +11,7 @@ import { EulerStreamSource } from './integrations/euler-stream.js';
 import { MockTikTokSource } from './integrations/mock-tiktok.js';
 import {
   normalizeTikTokUsername,
+  playerLimitSchema,
   RuntimeSettingsStore,
   type RuntimeSettings,
 } from './settings/runtime-settings.js';
@@ -56,6 +57,7 @@ const sourceSettingsSchema = z.object({
   mode: z.enum(['mock', 'live']),
   username: z.string().max(100).default(''),
 });
+const playerSettingsSchema = z.object({ maxPlayers: playerLimitSchema });
 const roundSettingsSchema = z.object({
   roundDurationMinutes: z.number().int().min(1).max(120),
 });
@@ -88,7 +90,9 @@ let runtimeSettings = await settingsStore.load({
   mode: env.TIKTOK_MODE,
   username: normalizeTikTokUsername(env.TIKTOK_USERNAME),
   roundDurationMinutes: env.ROUND_DURATION_MINUTES,
+  maxPlayers: null,
 });
+engine.setPlayerLimit(runtimeSettings.maxPlayers);
 engine.reset(runtimeSettings.roundDurationMinutes * 60_000);
 let roundStartedAt = engine.getState().round.startedAt;
 let source: LiveEventSource | null = null;
@@ -117,29 +121,31 @@ function processChat(viewer: ViewerIdentity, comment: string): GameAction | null
 }
 
 function processGift(viewer: ViewerIdentity, gift: IncomingGift): GameAction[] {
-  const actions = engine.handleGift(viewer, gift);
-  for (const action of actions) io.emit('game:action', action);
-  publishState();
-  return actions;
+  const before = engine.stateVersion;
+  return publishActions(engine.handleGift(viewer, gift), before);
 }
 
 function processJoin(viewer: ViewerIdentity): GameAction[] {
-  return publishActions(engine.handleJoin(viewer));
+  const before = engine.stateVersion;
+  return publishActions(engine.handleJoin(viewer), before);
 }
 function processLike(viewer: ViewerIdentity, count: number): GameAction[] {
-  return publishActions(engine.handleLike(viewer, count));
+  const before = engine.stateVersion;
+  return publishActions(engine.handleLike(viewer, count), before);
 }
-function publishActions(actions: GameAction[]): GameAction[] {
+function publishActions(actions: GameAction[], before: number): GameAction[] {
   for (const action of actions) io.emit('game:action', action);
-  publishState();
+  if (actions.length || engine.stateVersion !== before) publishState();
   return actions;
 }
 const sink: EventSink = {
+  onActivity: (userId) => engine.recordActivity(userId),
   onJoin: processJoin,
   onLike: processLike,
   onChat: processChat,
   onGift: processGift,
   onStatus: (status) => {
+    engine.setPresenceConnected(status.mode === 'tiktok' && status.connected);
     sourceStatus = status;
     io.emit('source:status', status);
   },
@@ -237,6 +243,7 @@ app.post('/api/settings/source', async (request, response) => {
     mode: parsed.data.mode,
     username: normalizeTikTokUsername(parsed.data.username),
     roundDurationMinutes: runtimeSettings.roundDurationMinutes,
+    maxPlayers: runtimeSettings.maxPlayers,
   };
   if (settings.mode === 'live' && !settings.username) {
     response.status(400).json({ error: 'Vui lòng nhập username TikTok đang livestream' });
@@ -253,6 +260,24 @@ app.post('/api/settings/source', async (request, response) => {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Không thể kết nối TikTok Live';
     response.status(502).json({ error: message, settings: publicSettings() });
+  }
+});
+
+app.post('/api/settings/players', async (request, response) => {
+  const parsed = playerSettingsSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ error: 'Giới hạn phải là số nguyên lớn hơn 0; để trống để không giới hạn' });
+    return;
+  }
+  const nextSettings: RuntimeSettings = { ...runtimeSettings, maxPlayers: parsed.data.maxPlayers };
+  try {
+    await settingsStore.save(nextSettings);
+    runtimeSettings = nextSettings;
+    engine.setPlayerLimit(nextSettings.maxPlayers);
+    publishRuntimeSettings();
+    response.json(publicSettings());
+  } catch {
+    response.status(500).json({ error: 'Không thể lưu giới hạn người chơi' });
   }
 });
 
@@ -355,6 +380,11 @@ httpServer.listen(env.PORT, env.HOST, () => {
   });
 });
 
+const presenceTimer = setInterval(() => {
+  const before = engine.stateVersion;
+  publishActions(engine.expireInactive(), before);
+}, 1000);
+
 let publishedRoundStatus = engine.getState().round.status;
 const roundTimer = setInterval(() => {
   engine.finishIfExpired();
@@ -373,6 +403,7 @@ const roundTimer = setInterval(() => {
 
 async function shutdown(): Promise<void> {
   clearInterval(roundTimer);
+  clearInterval(presenceTimer);
   await sourceTransition;
   if (source) await source.stop();
   io.close();

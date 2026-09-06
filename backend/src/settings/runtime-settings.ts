@@ -3,10 +3,13 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
+export const playerLimitSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable();
+
 export const runtimeSettingsSchema = z.object({
   mode: z.enum(['mock', 'live']),
   username: z.string().max(100),
   roundDurationMinutes: z.number().int().min(1).max(120).default(10),
+  maxPlayers: playerLimitSchema.default(null),
 });
 
 export type RuntimeSettings = z.infer<typeof runtimeSettingsSchema>;

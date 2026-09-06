@@ -43,7 +43,7 @@ Mặc định chạy Mock với 16 người, không cần API key. Bật âm tha
 - Chỉ tên quà được ánh xạ (không phân biệt hoa thường và dấu tiếng Việt), không dùng giá xu để suy đoán.
 - Gift streak áp dụng ở sự kiện kết thúc với số lượng cuối cùng; Hoa hồng cộng đủ số lượng trong một lần cập nhật, các quà khác tối đa 100 quà trong một sự kiện.
 - Tim dùng số lượng trong từng sự kiện, không dùng tổng tim phòng. Mỗi người giữ một mục tiêu cho đến khi đối thủ bị hạ, kể cả tim đến qua nhiều sự kiện riêng. 10 tim gây 20 HP sát thương; 60 tim hạ đối thủ 100 HP và gây thêm 20 HP cho một đồng đội của đối thủ (khi không có khiên). Các phát còn lại chuyển ngay sang đối thủ tiếp theo, dừng khi hết phe đối thủ; không bắn đồng đội. Sát thương trừ điểm khiên trước, phần còn lại mới trừ HP. Server gộp các phát cùng mục tiêu để tránh nghẽn, và xóa mục tiêu đã chọn khi bắt đầu vòng mới.
-- Đấu trường tối đa 400 avatar sống cùng lúc. Người mới khi đầy không được cấp nhân vật; tương tác sau khi có chỗ trống có thể tham gia.
+- Cài đặt **Giới hạn người tham gia mỗi vòng** tính người còn tham gia vòng, kể cả người đã bị hạ; người nhường chỗ do không hoạt động không còn chiếm suất. Khi đầy, người mới không vào được qua join/tim/chat/quà. Để trống là không giới hạn; sân tự mở rộng và không còn giới hạn cứng 400 người. Người bị chặn không được lưu vào hàng chờ.
 - Sự kiện Live phụ thuộc dữ liệu TikTok/Euler cung cấp; không có danh sách đầy đủ người đã xem trước khi kết nối. Tim có thể được nền tảng gộp hoặc gửi thưa.
 
 ## Kết thúc vòng
@@ -67,6 +67,8 @@ Mở cài đặt, nhập @username hoặc link TikTok Live, chọn **Lưu & kế
 Kết nối chỉ chuyển xanh khi nhận xác nhận TikTok hoặc sự kiện Live, không chỉ thông tin phòng. Lỗi tạm thời (WS State Error, mất mạng, lỗi upstream, kết nối hết hạn) tự thử lại sau 5, 10, 20, 40 rồi tối đa 60 giây; lỗi giới hạn kết nối bắt đầu chờ 30 giây. Chỉ đặt lại nhịp thử khi kết nối ổn định 30 giây. Thử lại giữ nguyên trận và bộ nhớ chống lặp; đổi nguồn hủy mọi lần thử đang chờ. API trả HTTP 202 khi đang chờ thử lại, kèm `source.retryAt`, `retryAttempt` và `errorCode` khi có lỗi. Trạng thái trong cài đặt cập nhật trực tiếp khi phục hồi.
 
 Sai key/quyền, sai cấu hình, tài khoản chưa live hoặc phiên đã kết thúc sẽ dừng và báo nguyên nhân để chủ phòng xử lý. Kiểm tra `GET /api/settings` hoặc `/health` để xem trạng thái và mã lỗi. Backend không gửi URL chứa key hoặc thông báo lỗi thô của thư viện ra giao diện.
+
+Trong cài đặt, nhập số nguyên dương ở **Giới hạn người tham gia mỗi vòng** rồi bấm **Lưu giới hạn**; xóa trắng và lưu để bỏ giới hạn. Áp dụng ngay cho lượt vào mới, không xóa người đang chơi hoặc reset trận. Nếu giảm thấp hơn số người hiện tại, vòng sau giữ lại tối đa số đã đặt theo thứ tự tham gia trước đó. Giới hạn được lưu cùng cấu hình Live và thời gian, giữ nguyên khi khởi động lại. API: POST `/api/settings/players` với `{ "maxPlayers": 50 }` hoặc `{ "maxPlayers": null }`; GET `/api/settings` trả giá trị hiện tại. Các lượt vào bị chặn không tạo nhân vật hay phát lại toàn bộ trạng thái trận.
 
 Backend mặc định chỉ bind 127.0.0.1; các API điều khiển dành cho máy của chủ phòng. Giao diện tự thích ứng kích thước trình duyệt; để truy cập từ điện thoại khác trong mạng cần cấu hình HOST, CLIENT_ORIGIN và NEXT_PUBLIC_GAME_SERVER_URL phù hợp.
 
@@ -97,3 +99,11 @@ Nhân vật chạy trong nửa sân của đội, dùng avatar TikTok làm đầ
 Đạn xuất phát từ súng, có chớp đầu nòng, giật súng, phản ứng trúng đạn và rung sân. Chế độ giảm chuyển động của hệ điều hành tắt chạy/rung nhưng giữ thông tin trận đấu. Canvas chạy tối đa 30 FPS, dừng khi tab bị ẩn.
 
 Tiếng súng dùng mẫu ghi âm, được cắt ngắn và cân mức; có bộ nén âm và giới hạn số mẫu phát cùng lúc. Nguồn và giấy phép: frontend/public/audio/CREDITS.txt (Vincent Sevedge / Tabasco, CC BY 3.0 theo ghi chú trong gói gốc).
+
+
+### Tự nhường chỗ trong Live
+
+- Sau 60 giây không nhận hoạt động của người tham gia, backend đưa họ khỏi đấu trường và giải phóng giới hạn người chơi (kiểm tra mỗi giây).
+- Đây là quy tắc dựa trên hoạt động, không phải xác nhận người đó đã đóng Live. Người xem yên lặng cũng có thể bị đưa ra. Vào phòng, thả tim, bình luận, tặng quà (kể cả chuỗi chưa kết thúc) và sự kiện social có user ID sẽ gia hạn chỗ.
+- Người quay lại được vào khi còn chỗ; trong cùng vòng giữ nguyên đội, HP, khiên, cấp độ và điểm. Người đã bị hạ không được hồi sinh bằng cách ra/vào. Người đã rời không tự tham gia vòng kế tiếp.
+- Không đếm thời gian mất kết nối Euler/TikTok; khi kết nối lại, người trong trận có thêm 60 giây để hoạt động. Chế độ Mock không tự loại vì ít hoạt động. Không lưu hàng chờ người bị từ chối khi đầy.

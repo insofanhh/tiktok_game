@@ -19,7 +19,7 @@ const gifts = [
 ];
 
 export function GameApp() {
-  const { state, recentActions, connection, source, serverUrl } = useGameSocket();
+  const { state, recentActions, connection, source, serverUrl, runtimeSettings } = useGameSocket();
   const [tab, setTab] = useState<'arena'|'ranking'>('arena');
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
@@ -47,7 +47,7 @@ export function GameApp() {
       </div>
     </header>
 
-    <div className="live-bar"><span className={'status-dot ' + (connected && source.connected ? 'connected' : '')}/><span>{!connected ? 'Đang kết nối lại máy chủ…' : source.mode === 'mock' ? 'GIẢ LẬP' : 'TIKTOK LIVE'}</span><span className="live-description">{connected ? source.label : 'Dữ liệu tạm thời chưa cập nhật'}</span><span className="viewer-count"><Users size={14}/>{state.users.length}</span></div>
+    <div className="live-bar"><span className={'status-dot ' + (connected && source.connected ? 'connected' : '')}/><span>{!connected ? 'Đang kết nối lại máy chủ…' : source.mode === 'mock' ? 'GIẢ LẬP' : 'TIKTOK LIVE'}</span><span className="live-description">{connected ? source.label : 'Dữ liệu tạm thời chưa cập nhật'}</span><span className="viewer-count" title="Người tham gia vòng / giới hạn"><Users size={14}/>{state.users.length}{runtimeSettings.maxPlayers !== null && ` / ${runtimeSettings.maxPlayers}`}</span></div>
     {audio.error && <p role="alert" className="error-banner">{audio.error}</p>}
     <section className={'match-header ' + (finished ? 'match-finished' : '')} aria-label="Trận đấu sinh tồn">
       <div className="scoreboard">

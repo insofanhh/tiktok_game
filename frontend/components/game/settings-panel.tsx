@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle2, Clock3, LoaderCircle, Radio, Settings, TriangleAlert } from 'lucide-react';
+import { CheckCircle2, Clock3, LoaderCircle, Radio, Settings, TriangleAlert, Users } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,6 +28,7 @@ export function SettingsPanel({ serverUrl, connection, source }: SettingsPanelPr
   const [open, setOpen] = useState(false);
   const [username, setUsername] = useState('');
   const [roundDurationInput, setRoundDurationInput] = useState('10');
+  const [playerLimitInput, setPlayerLimitInput] = useState('');
   const [hasEulerApiKey, setHasEulerApiKey] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -48,6 +49,7 @@ export function SettingsPanel({ serverUrl, connection, source }: SettingsPanelPr
       .then((settings) => {
         setUsername(settings.username);
         setRoundDurationInput(String(settings.roundDurationMinutes ?? 10));
+        setPlayerLimitInput(settings.maxPlayers == null ? '' : String(settings.maxPlayers));
         setHasEulerApiKey(settings.hasEulerApiKey);
       })
       .catch((error: unknown) => {
@@ -127,6 +129,31 @@ export function SettingsPanel({ serverUrl, connection, source }: SettingsPanelPr
     }
   };
 
+  const savePlayerLimit = async () => {
+    const maxPlayers = playerLimitInput.trim() === '' ? null : Number(playerLimitInput);
+    if (maxPlayers !== null && (!Number.isSafeInteger(maxPlayers) || maxPlayers < 1)) {
+      setFeedback({ kind: 'error', message: 'Nhập số nguyên lớn hơn 0 hoặc để trống để không giới hạn' });
+      return;
+    }
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const response = await fetch(`${serverUrl}/api/settings/players`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maxPlayers }),
+      });
+      const payload = await readSettingsResponse(response);
+      if (!response.ok) throw new Error(payload.error ?? 'Không thể lưu giới hạn người chơi');
+      setPlayerLimitInput(payload.maxPlayers == null ? '' : String(payload.maxPlayers));
+      setFeedback({ kind: 'success', message: payload.maxPlayers == null
+        ? 'Đã bỏ giới hạn người tham gia mỗi vòng'
+        : `Đã giới hạn ${payload.maxPlayers} người/vòng. Người đang chơi được giữ đến hết vòng.` });
+    } catch (error: unknown) {
+      setFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Không thể lưu giới hạn người chơi' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleLiveSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     void updateSource('live');
@@ -155,7 +182,7 @@ export function SettingsPanel({ serverUrl, connection, source }: SettingsPanelPr
             <Radio className="h-5 w-5 text-rose-400" /> CÀI ĐẶT GAME &amp; LIVE
           </DialogTitle>
           <DialogDescription className="text-slate-400">
-            Thiết lập thời gian mỗi vòng và tài khoản TikTok Live. Backend sẽ lưu lại để dùng sau khi khởi động lại.
+            Thiết lập thời gian, giới hạn người chơi và tài khoản TikTok Live. Backend sẽ lưu lại để dùng sau khi khởi động lại.
           </DialogDescription>
         </DialogHeader>
 
@@ -207,6 +234,27 @@ export function SettingsPanel({ serverUrl, connection, source }: SettingsPanelPr
               </Button>
             </div>
             <p className="text-xs text-slate-500">Từ 1–120 phút. Lưu sẽ bắt đầu vòng mới, hồi sinh mọi người và xóa điểm vòng hiện tại.</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="player-limit" className="flex items-center gap-2 text-slate-200">
+              <Users className="h-4 w-4 text-cyan-300" /> Giới hạn người tham gia mỗi vòng
+            </Label>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+              <Input id="player-limit" type="number" min={1} step={1} inputMode="numeric"
+                value={playerLimitInput} onChange={event => setPlayerLimitInput(event.target.value)}
+                placeholder="Không giới hạn" aria-describedby="player-limit-help"
+                disabled={loading || saving || !backendOnline}
+                className="h-10 border-white/15 bg-black/25 text-white placeholder:text-slate-500 focus-visible:border-cyan-300" />
+              <Button type="button" variant="outline" disabled={saving || loading || !backendOnline}
+                onClick={() => void savePlayerLimit()}
+                className="border-cyan-300/30 bg-cyan-300/10 font-bold text-cyan-200 hover:bg-cyan-300/20 hover:text-cyan-100">
+                Lưu giới hạn
+              </Button>
+            </div>
+            <p id="player-limit-help" className="text-xs text-slate-500">
+              Để trống: không giới hạn. Tính cả người đã bị loại còn trong trận. Giảm giới hạn không đẩy người đang chơi ra. Trong Live, sau 1 phút không hoạt động sẽ tự nhường chỗ; người xem yên lặng cũng có thể bị đưa ra. Thả tim, bình luận hoặc tặng quà để giữ chỗ.
+            </p>
           </div>
 
           <div className="grid gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400">

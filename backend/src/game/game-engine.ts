@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import type { GameAction, GameState, GiftKind, GridCell, IncomingGift, RankingEntry, Team, UserStats, ViewerIdentity } from './types.js';
+import type { Building, GameAction, GameState, GiftKind, GridCell, IncomingGift, RankingEntry, Team, UserStats, ViewerIdentity } from './types.js';
 
 const LIKE_DAMAGE = 2;
+export const VIEWER_IDLE_TIMEOUT_MS = 60_000;
 
-export interface GameEngineOptions { gridSize?: number; random?: () => number; now?: () => number; durationMs?: number }
+export interface GameEngineOptions { gridSize?: number; random?: () => number; now?: () => number; durationMs?: number; maxPlayers?: number | null }
 const aliases: Record<string, GiftKind> = {
   rose: 'shield', 'hoa hong': 'shield', '🌹': 'shield', rosa: 'attack',
   'lucky pig': 'upgrade', 'heo may man': 'upgrade', 'lon may man': 'upgrade',
@@ -21,12 +22,18 @@ export class GameEngine {
   private readonly grid: GridCell[][];
   private readonly users = new Map<string, UserStats>();
   private readonly likeTargets = new Map<string, string>();
+  private readonly lastActivity = new Map<string, number>();
+  // Keep round progress off the public roster so reconnecting cannot grant free HP.
+  private readonly departed = new Map<string, { stats: UserStats; building?: Building }>();
+  private presenceConnected = false;
   private version = 0;
   private updatedAt: number;
   private durationMs: number;
+  private maxPlayers: number | null = null;
   private round: GameState['round'];
 
   constructor(options: GameEngineOptions = {}) {
+    this.setPlayerLimit(options.maxPlayers ?? null);
     this.gridSize = options.gridSize ?? 20;
     if (!Number.isInteger(this.gridSize) || this.gridSize < 2 || this.gridSize % 2) throw new Error('gridSize must be even and >= 2');
     this.random = options.random ?? Math.random;
@@ -37,6 +44,48 @@ export class GameEngine {
     this.grid = Array.from({ length: this.gridSize }, (_, y) =>
       Array.from({ length: this.gridSize }, (_, x) => ({ x, y, territory: x < this.gridSize / 2 ? 'blue' : 'red' })));
   }
+  get stateVersion(): number { return this.version; }
+
+  setPlayerLimit(limit: number | null): void {
+    if (limit !== null && (!Number.isSafeInteger(limit) || limit < 1)) throw new Error('Invalid player limit');
+    this.maxPlayers = limit;
+  }
+
+  recordActivity(userId: string): void {
+    if (this.users.has(userId)) this.lastActivity.set(userId, this.now());
+  }
+
+  setPresenceConnected(connected: boolean): void {
+    if (connected && !this.presenceConnected) {
+      // Give everyone a fresh minute after an outage; missing events are not viewer inactivity.
+      for (const id of this.users.keys()) this.lastActivity.set(id, this.now());
+    }
+    this.presenceConnected = connected;
+  }
+
+  expireInactive(): GameAction[] {
+    if (!this.presenceConnected) return [];
+    const actions: GameAction[] = [];
+    for (const [id, lastSeen] of this.lastActivity) {
+      if (this.now() - lastSeen >= VIEWER_IDLE_TIMEOUT_MS) actions.push(...this.handleLeave(id));
+    }
+    return actions;
+  }
+
+  handleLeave(userId: string): GameAction[] {
+    const stats = this.users.get(userId);
+    if (!stats) return [];
+    const cell = this.owned(userId);
+    this.departed.set(userId, { stats: { ...stats }, ...(cell?.building ? { building: { ...cell.building } } : {}) });
+    if (cell) delete cell.building;
+    this.users.delete(userId);
+    this.lastActivity.delete(userId);
+    this.likeTargets.delete(userId);
+    for (const [attacker, target] of this.likeTargets) if (target === userId) this.likeTargets.delete(attacker);
+    this.touch();
+    return [this.action('LEAVE', stats.team, stats, 'Nhường chỗ · 1 phút không hoạt động')];
+  }
+
   private newRound(): GameState['round'] {
     const startedAt = this.now();
     return { id: randomUUID(), status: 'active', startedAt, endsAt: startedAt + this.durationMs, restartAt: null, winner: null, ranking: [] };
@@ -64,6 +113,7 @@ export class GameEngine {
     return true;
   }
   handleJoin(viewer: ViewerIdentity): GameAction[] {
+    this.recordActivity(viewer.userId);
     this.finishIfExpired();
     if (this.round.status === 'finished') return [];
     const existing = this.users.get(viewer.userId);
@@ -74,14 +124,27 @@ export class GameEngine {
       this.touch();
       return []; // Presence retries never grant another life.
     }
+    // Count current participants, including eliminated users. Departures release capacity.
+    if (this.maxPlayers !== null && this.users.size >= this.maxPlayers) return [];
+    const returning = this.departed.get(viewer.userId);
     const scores = this.scores();
-    const team: Team = scores.blue === scores.red ? (this.random() < .5 ? 'blue' : 'red') : scores.blue < scores.red ? 'blue' : 'red';
-    const cell = this.pick(c => c.territory === team && !c.building);
-    if (!cell) return [this.action('IGNORED', team, viewer, 'Đấu trường đã đủ 400 người chơi')];
-    this.users.set(viewer.userId, { ...viewer, team, built: 1, upgraded: 0, shielded: 0, destroyed: 0, shots: 0, damageDealt: 0, joinedAt: this.now() });
-    cell.building = { id: randomUUID(), ownerId: viewer.userId, ownerName: viewer.nickname, ...(viewer.avatarUrl ? { avatarUrl: viewer.avatarUrl } : {}), team, level: 1, shieldHealth: 0, health: 100, maxHealth: 100 };
+    const team: Team = returning?.stats.team ?? (scores.blue === scores.red ? (this.random() < .5 ? 'blue' : 'red') : scores.blue < scores.red ? 'blue' : 'red');
+    let cell = this.pick(c => c.territory === team && !c.building);
+    if (!cell) {
+      // Grow by one row so unlimited mode has no hidden 400-player cap. Existing coordinates stay stable.
+      const y = this.grid.length;
+      const row: GridCell[] = Array.from({ length: this.gridSize }, (_, x) => ({ x, y, territory: x < this.gridSize / 2 ? 'blue' : 'red' }));
+      this.grid.push(row);
+      cell = row.find(c => c.territory === team)!;
+    }
+    this.users.set(viewer.userId, returning ? { ...returning.stats, ...viewer } : { ...viewer, team, built: 1, upgraded: 0, shielded: 0, destroyed: 0, shots: 0, damageDealt: 0, joinedAt: this.now() });
+    if (returning?.building) {
+      cell.building = { ...returning.building, ownerName: viewer.nickname, ...(viewer.avatarUrl ? { avatarUrl: viewer.avatarUrl } : {}) };
+    } else if (!returning) cell.building = { id: randomUUID(), ownerId: viewer.userId, ownerName: viewer.nickname, ...(viewer.avatarUrl ? { avatarUrl: viewer.avatarUrl } : {}), team, level: 1, shieldHealth: 0, health: 100, maxHealth: 100 };
     this.touch();
-    return [this.action('JOIN', team, viewer, 'Vào trận · 100 HP', cell)];
+    this.lastActivity.set(viewer.userId, this.now());
+    this.departed.delete(viewer.userId);
+    return [this.action(returning && !cell.building ? 'IGNORED' : 'JOIN', team, viewer, returning ? (cell.building ? 'Trở lại · Giữ HP và khiên' : 'Đã bị loại · Hẹn bạn vòng sau') : 'Vào trận · 100 HP', cell)];
   }
   handleChat(viewer: ViewerIdentity, _comment: string): GameAction | null {
     return this.handleJoin(viewer)[0] ?? null;
@@ -178,12 +241,20 @@ export class GameEngine {
   reset(durationMs = this.durationMs, keepParticipants = false): GameState {
     if (!Number.isFinite(durationMs) || durationMs <= 0) throw new Error('Invalid round duration');
     const viewers: ViewerIdentity[] = keepParticipants ? [...this.users.values()].map(u => ({ userId: u.userId, uniqueId: u.uniqueId, nickname: u.nickname, ...(u.avatarUrl ? { avatarUrl: u.avatarUrl } : {}) })) : [];
+    const activity = new Map(this.lastActivity);
+    this.lastActivity.clear();
+    this.departed.clear();
     this.durationMs = durationMs;
     for (const row of this.grid) for (const cell of row) delete cell.building;
+    this.grid.length = this.gridSize;
     this.users.clear();
     this.likeTargets.clear();
     this.round = this.newRound();
-    for (const viewer of viewers) this.handleJoin(viewer);
+    for (const viewer of viewers.slice(0, this.maxPlayers ?? viewers.length)) {
+      this.handleJoin(viewer);
+      // Round resets are not viewer activity.
+      this.lastActivity.set(viewer.userId, activity.get(viewer.userId) ?? this.now());
+    }
     this.touch();
     return this.getState();
   }

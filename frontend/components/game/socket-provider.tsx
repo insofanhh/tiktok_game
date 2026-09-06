@@ -47,6 +47,7 @@ export function GameSocketProvider({ children }: { children: React.ReactNode }) 
     username: '',
     hasEulerApiKey: false,
     roundDurationMinutes: 10,
+    maxPlayers: null,
     roundStartedAt: Date.now(),
     source: {
       mode: 'mock',

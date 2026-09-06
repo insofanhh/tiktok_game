@@ -101,10 +101,10 @@ describe('survival rules', () => {
     e.handleGift(blue,{giftName:'Unknown',diamondCount:1,repeatCount:1});
     expect(unit(e,'blue')?.shieldHealth).toBe(0);
   });
-  it('refuses new users when the arena has no free cells', () => {
+  it('grows the arena when all original cells are occupied in unlimited mode', () => {
     const e=new GameEngine({gridSize:2,random:()=>0});
     for(let i=0;i<5;i++) e.handleJoin({userId:''+i,uniqueId:''+i,nickname:''+i});
-    expect(e.getState().users).toHaveLength(4);
+    expect(e.getState().users).toHaveLength(5);
   });
 });
 describe('two-HP hearts and focused targeting', () => {

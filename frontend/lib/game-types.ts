@@ -1,6 +1,6 @@
 export type Team = 'blue' | 'red';
 export type GiftKind = 'shield' | 'attack' | 'upgrade' | 'eliminate' | 'eliminate10' | 'eliminate20';
-export type ActionType = 'JOIN' | 'BUILD' | 'UPGRADE' | 'SHIELD' | 'DAMAGE' | 'DESTROY' | 'MEGA_DESTROY' | 'BLOCKED' | 'IGNORED';
+export type ActionType = 'LEAVE' | 'JOIN' | 'BUILD' | 'UPGRADE' | 'SHIELD' | 'DAMAGE' | 'DESTROY' | 'MEGA_DESTROY' | 'BLOCKED' | 'IGNORED';
 export interface ViewerIdentity { userId: string; uniqueId: string; nickname: string; avatarUrl?: string }
 export interface UserStats extends ViewerIdentity {
   team: Team; built: number; upgraded: number; shielded: number; destroyed: number;
@@ -44,6 +44,7 @@ export interface RuntimeSourceSettings {
   username: string;
   hasEulerApiKey: boolean;
   roundDurationMinutes: number;
+  maxPlayers: number | null;
   roundStartedAt: number;
   source: SourceStatus;
 }

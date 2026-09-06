@@ -164,6 +164,13 @@ export class EulerStreamSource implements LiveEventSource {
         if (this.seen.size > 10000) this.seen.delete(this.seen.values().next().value!);
       }
     }
+    // Count identifiable activity, including unfinished gift streaks and social interactions.
+    // Room totals, unknown member actions and replayed messages do not renew presence.
+    if (['WebcastLikeMessage', 'WebcastChatMessage', 'WebcastGiftMessage', 'WebcastSocialMessage'].includes(message.type)
+      || (message.type === 'WebcastMemberMessage' && message.data.actionId === 1)) {
+      const user = message.data.user;
+      if (isRecord(user) && typeof user.userId === 'string' && user.userId) this.sink.onActivity?.(user.userId);
+    }
     if (message.type === 'WebcastMemberMessage') {
       const data = message.data as unknown as WebcastMemberMessage;
       const viewer = toViewer(data.user);
